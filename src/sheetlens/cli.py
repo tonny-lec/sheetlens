@@ -39,5 +39,21 @@ def compile_cmd(project: Path) -> None:
 @app.command()
 def check(project: Path) -> None:
     """孤立注釈・未回答質問・スキーマ違反を報告する。"""
-    typer.echo("check: 未実装")
-    raise typer.Exit(1)
+    from sheetlens.annotations.schema import AnnotationError, find_orphans, load_annotations
+    from sheetlens.model import ir
+    from sheetlens.pipeline import analyze
+
+    wb = ir.Workbook.model_validate_json(
+        (project / "structure" / "raw.json").read_text(encoding="utf-8")
+    )
+    try:
+        anns = load_annotations(project / "annotations")
+    except AnnotationError as e:
+        typer.echo(f"注釈エラー: {e}")
+        raise typer.Exit(1) from e
+    for o in find_orphans(wb, anns):
+        typer.echo(f"孤立注釈: {o}")
+    questions = analyze(wb).questions
+    answered = {qid for a in anns for qid in a.questions_answered}
+    unanswered = sum(1 for q in questions if q.id not in answered)
+    typer.echo(f"未回答質問: {unanswered} / {len(questions)}")
