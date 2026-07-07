@@ -13,10 +13,13 @@ def extract(
     out: Path | None = typer.Option(None, "-o", "--out"),
 ) -> None:
     """xlsx/xlsm から構造層と questions.md を生成する。"""
-    from sheetlens.pipeline import extract_workbook
+    from sheetlens.pipeline import ExistingStructureError, extract_workbook
 
     try:
         proj = extract_workbook(file, out)
+    except ExistingStructureError as e:
+        typer.echo(str(e))
+        raise typer.Exit(1) from e
     except (InvalidFileException, BadZipFile, KeyError) as e:
         typer.echo(f"エラー: {file} を読めません（破損またはパスワード保護の可能性）: {e}")
         raise typer.Exit(1) from e

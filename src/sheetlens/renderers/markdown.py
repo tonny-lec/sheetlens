@@ -142,7 +142,8 @@ def render_sheet_md(
         for cf in sheet.conditional_formats:
             cond = " ".join(x for x in (cf.operator, cf.formula) if x) or cf.rule_type
             lines.append(f"- {cf.range}: {cf.rule_type} — 条件: {cond}")
-            lines += _ann_lines(ann, cf.range)
+            for rng in split_ranges(cf.range):
+                lines += _ann_lines(ann, rng)
         lines.append("")
     if buttons:
         lines += ["## VBA との接続", ""]

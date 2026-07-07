@@ -67,6 +67,18 @@ def test_reextract_removes_stale_structure_files(make_xlsx):
     assert keep.exists()
 
 
+def test_extract_refuses_foreign_structure_dir(make_xlsx, tmp_path):
+    src = make_xlsx(_build, name="c.xlsx")
+    out = tmp_path / "userproj"
+    (out / "structure").mkdir(parents=True)
+    user_file = out / "structure" / "main.c"
+    user_file.write_text("int main(){}", encoding="utf-8")
+    result = runner.invoke(app, ["extract", str(src), "-o", str(out)])
+    assert result.exit_code == 1
+    assert user_file.exists()
+    assert "raw.json" in result.output
+
+
 def test_extract_rejects_broken_file(tmp_path):
     bad = tmp_path / "broken.xlsx"
     bad.write_bytes(b"not a zip")

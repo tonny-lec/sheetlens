@@ -20,6 +20,10 @@ class Analysis(BaseModel):
     questions: list[Question]
 
 
+class ExistingStructureError(Exception):
+    pass
+
+
 def analyze(wb: ir.Workbook) -> Analysis:
     patterns = {s.name: aggregate_formulas(s) for s in wb.sheets}
     regions = {s.name: detect_regions(s) for s in wb.sheets}
@@ -42,7 +46,8 @@ def find_unwoven(wb: ir.Workbook, analysis: Analysis, anns: list[SheetAnnotation
         keys: set[str] = {r.range for r in analysis.regions.get(ann.sheet, [])}
         for v in sheet.validations:
             keys.update(v.ranges)
-        keys.update(cf.range for cf in sheet.conditional_formats)
+        for cf in sheet.conditional_formats:
+            keys.update(split_ranges(cf.range))
         for t in ann.targets:
             if not t.range or t.kind == "hidden_reason":
                 continue
@@ -92,7 +97,13 @@ def extract_workbook(src: Path, out: Path | None = None) -> Path:
     proj = out or src.with_name(src.stem + ".sheetlens")
     structure_dir = proj / "structure"
     if structure_dir.exists():
-        shutil.rmtree(structure_dir)  # structure/ は常に再生成可能（annotations/ には触れない）
+        if (structure_dir / "raw.json").exists():
+            shutil.rmtree(structure_dir)  # SheetLens 出力なので再生成のため削除
+        else:
+            raise ExistingStructureError(
+                f"{structure_dir} は SheetLens の出力ではありません（raw.json なし）。"
+                "誤削除を防ぐため中断しました。別の出力先を指定してください。"
+            )
     structure_dir.mkdir(parents=True)
     (proj / "annotations").mkdir(exist_ok=True)  # 既存の中身には触れない
     (structure_dir / "raw.json").write_text(wb.model_dump_json(indent=2), encoding="utf-8")

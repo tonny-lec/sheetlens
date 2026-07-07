@@ -83,6 +83,28 @@ def test_validation_with_multiple_ranges_and_empty_ranges_safe():
     assert "承認する" in md  # 2番目の range にも注釈が織り込まれる
 
 
+def test_multirange_conditional_format_annotation_woven():
+    ann = SheetAnnotations(
+        sheet="s",
+        targets=[AnnotationTarget(range="G1:G9", kind="alert_action", note="担当へ連絡")],
+    )
+    sheet = ir.Sheet(
+        name="s",
+        used_range="A1:G9",
+        cells=[ir.Cell(ref="A1", value="x")],
+        conditional_formats=[
+            ir.ConditionalFormat(
+                range="F1:F9 G1:G9",
+                rule_type="cellIs",
+                operator="lessThan",
+                formula="0",
+            )
+        ],
+    )
+    md = render_sheet_md(sheet, [], [], [], [], ann)
+    assert "担当へ連絡" in md
+
+
 def test_readme_warns_on_gaps():
     wb = ir.Workbook(source_file="a.xlsx", sha256="00" * 32,
                      sheets=[ir.Sheet(name="s")], extraction_gaps=["x の抽出に失敗"])
