@@ -28,6 +28,12 @@ VML = """<xml xmlns:v="urn:schemas-microsoft-com:vml"
  </x:ClientData></v:shape></xml>"""
 
 
+def _write_zip(path, parts):
+    with zipfile.ZipFile(path, "w") as z:
+        for name, content in parts.items():
+            z.writestr(name, content)
+
+
 def test_extract_buttons_from_vml(tmp_path):
     path = tmp_path / "btn.xlsm"
     with zipfile.ZipFile(path, "w") as z:
@@ -44,6 +50,28 @@ def test_extract_vba_skips_xlsx(make_xlsx):
     assert extract_vba(path) == []
 
 
+def test_extract_vba_no_macros_detected(tmp_path, monkeypatch):
+    class FakeParser:
+        def __init__(self, _):
+            pass
+
+        def detect_vba_macros(self):
+            return False
+
+        def extract_macros(self):
+            raise AssertionError("extract_macros should not be called")
+
+        def close(self):
+            pass
+
+    import sheetlens.reader.vba as vba_mod
+
+    monkeypatch.setattr(vba_mod, "VBA_Parser", FakeParser)
+    path = tmp_path / "macro.xlsm"
+    path.write_bytes(b"dummy")
+    assert extract_vba(path) == []
+
+
 def test_extract_vba_with_mocked_parser(tmp_path, monkeypatch):
     class FakeParser:
         def __init__(self, _):
@@ -53,7 +81,7 @@ def test_extract_vba_with_mocked_parser(tmp_path, monkeypatch):
             return True
 
         def extract_macros(self):
-            yield ("f", "s", "Module1.bas", "Sub RegisterEstimate()\nEnd Sub")
+            yield ("f", "s", "VBA/Module1.bas", "Sub RegisterEstimate()\nEnd Sub")
 
         def close(self):
             pass
@@ -65,3 +93,37 @@ def test_extract_vba_with_mocked_parser(tmp_path, monkeypatch):
     path.write_bytes(b"dummy")
     mods = extract_vba(path)
     assert mods == [ir.VbaModule(name="Module1.bas", code="Sub RegisterEstimate()\nEnd Sub")]
+
+
+def test_extract_buttons_tolerates_missing_parts(tmp_path):
+    missing_workbook = tmp_path / "missing-workbook.xlsm"
+    _write_zip(
+        missing_workbook,
+        {
+            "xl/_rels/workbook.xml.rels": WORKBOOK_RELS,
+        },
+    )
+    assert extract_buttons(missing_workbook) == []
+
+    missing_sheet_rels = tmp_path / "missing-sheet-rels.xlsm"
+    _write_zip(
+        missing_sheet_rels,
+        {
+            "xl/workbook.xml": WORKBOOK_XML,
+            "xl/_rels/workbook.xml.rels": WORKBOOK_RELS,
+            "xl/worksheets/sheet1.xml": "<worksheet/>",
+        },
+    )
+    assert extract_buttons(missing_sheet_rels) == []
+
+    missing_vml = tmp_path / "missing-vml.xlsm"
+    _write_zip(
+        missing_vml,
+        {
+            "xl/workbook.xml": WORKBOOK_XML,
+            "xl/_rels/workbook.xml.rels": WORKBOOK_RELS,
+            "xl/worksheets/sheet1.xml": "<worksheet/>",
+            "xl/worksheets/_rels/sheet1.xml.rels": SHEET_RELS,
+        },
+    )
+    assert extract_buttons(missing_vml) == []
