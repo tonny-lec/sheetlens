@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -18,7 +19,7 @@ class AnnotationTarget(BaseModel):
     range: str | None = None
     kind: Literal[
         "input_source", "dropdown_semantics", "trigger_timing",
-        "alert_action", "sheet_role", "free_note",
+        "alert_action", "sheet_role", "free_note", "hidden_reason",
     ]
     value: str | None = None
     by: str | None = None
@@ -35,6 +36,11 @@ class SheetAnnotations(BaseModel):
     workflow_stage: str | None = None
     targets: list[AnnotationTarget] = Field(default_factory=list)
     questions_answered: list[str] = Field(default_factory=list)
+
+
+def split_ranges(value: str) -> list[str]:
+    """注釈の range 文字列をカンマ/空白区切りで個別範囲に分割する。"""
+    return [p for p in re.split(r"[\s,]+", value.strip()) if p]
 
 
 def load_annotations(dir_path: Path) -> list[SheetAnnotations]:
@@ -59,17 +65,28 @@ def find_orphans(wb: ir.Workbook, anns: list[SheetAnnotations]) -> list[str]:
         for t in ann.targets:
             if not t.range:
                 continue
+            if t.kind in ("trigger_timing", "hidden_reason"):
+                continue
             if not sheet.used_range:
                 orphans.append(f"{ann.sheet}!{t.range}: シートが空です")
                 continue
             u_min_c, u_min_r, u_max_c, u_max_r = range_boundaries(sheet.used_range)
-            try:
-                min_c, min_r, max_c, max_r = range_boundaries(t.range)
-            except ValueError:
-                orphans.append(f"{ann.sheet}!{t.range}: range 指定が不正です")
-                continue
-            if not (u_min_c <= min_c and u_min_r <= min_r and max_c <= u_max_c and max_r <= u_max_r):
-                orphans.append(
-                    f"{ann.sheet}!{t.range}: 現在の使用範囲 {sheet.used_range} の外にあります"
-                )
+            for part in split_ranges(t.range):
+                try:
+                    min_c, min_r, max_c, max_r = range_boundaries(part)
+                except ValueError:
+                    orphans.append(f"{ann.sheet}!{part}: range 指定が不正です")
+                    continue
+                if None in (min_c, min_r, max_c, max_r):
+                    orphans.append(f"{ann.sheet}!{part}: range 指定が不正です")
+                    continue
+                if not (
+                    u_min_c <= min_c
+                    and u_min_r <= min_r
+                    and max_c <= u_max_c
+                    and max_r <= u_max_r
+                ):
+                    orphans.append(
+                        f"{ann.sheet}!{part}: 現在の使用範囲 {sheet.used_range} の外にあります"
+                    )
     return orphans

@@ -32,3 +32,15 @@ def test_check_fails_on_schema_error(make_xlsx):
     result = runner.invoke(app, ["check", str(proj)])
     assert result.exit_code == 1
     assert "bad.yaml" in result.output
+
+
+def test_check_rejects_non_project(tmp_path):
+    result = runner.invoke(app, ["check", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "raw.json" in result.output
+
+
+def test_extract_rejects_missing_file(tmp_path):
+    result = runner.invoke(app, ["extract", str(tmp_path / "nai.xlsx")])
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)

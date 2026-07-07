@@ -8,7 +8,7 @@ from sheetlens.detectors.util import runs
 from sheetlens.model import ir
 
 _STRING_RE = re.compile(r'("(?:[^"]|"")*")')
-_ROW_RE = re.compile(r"(?<![A-Za-z0-9_$])(\$?[A-Z]{1,3})\$?\d+(?![\w(])")
+_ROW_RE = re.compile(r"(?<![A-Za-z0-9_$])(\$?[A-Z]{1,3})\d+(?![\w(])")
 
 
 class FormulaPattern(BaseModel):

@@ -146,7 +146,7 @@ questions_answered: [q-001, q-004]
 ```
 
 `kind` は固定語彙の列挙型: `input_source` / `dropdown_semantics` / `trigger_timing` /
-`alert_action` / `sheet_role` / `free_note`。自由記述は `free_note` で許容しつつ、
+`alert_action` / `sheet_role` / `free_note` / `hidden_reason`。自由記述は `free_note` で許容しつつ、
 頻出パターンは構造化して AI が確実に拾えるようにする。
 
 ### compile での統合

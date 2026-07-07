@@ -2,7 +2,7 @@ from collections.abc import Iterable
 
 from openpyxl.utils import get_column_letter, range_boundaries
 
-from sheetlens.annotations.schema import AnnotationTarget, SheetAnnotations
+from sheetlens.annotations.schema import AnnotationTarget, SheetAnnotations, split_ranges
 from sheetlens.detectors.formula_patterns import FormulaPattern
 from sheetlens.detectors.questions import Question
 from sheetlens.detectors.regions import Region
@@ -28,7 +28,11 @@ def _fmt_target(t: AnnotationTarget) -> str:
 def _ann_lines(ann: SheetAnnotations | None, rng: str) -> list[str]:
     if not ann:
         return []
-    lines = [f"> 💬 業務上の意味: {_fmt_target(t)}" for t in ann.targets if t.range == rng]
+    lines = [
+        f"> 💬 業務上の意味: {_fmt_target(t)}"
+        for t in ann.targets
+        if t.range and rng in split_ranges(t.range)
+    ]
     return lines + [""] if lines else []
 
 
@@ -104,6 +108,11 @@ def render_sheet_md(
     ]
     if flags:
         lines.append(f"- 属性: {' / '.join(flags)}")
+    if ann:
+        for t in ann.targets:
+            if t.kind == "hidden_reason":
+                label = f"（{t.range}）" if t.range else ""
+                lines.append(f"> 💬 業務上の意味{label}: {t.note or t.value or ''}")
     lines += ["", "## レイアウトマップ", ""]
     lines += _grid(sheet)
     if regions:
@@ -140,6 +149,7 @@ def render_sheet_md(
         for b in buttons:
             label = f"「{b.label}」" if b.label else ""
             lines.append(f"- ボタン{label} → {b.macro}")
+            lines += _ann_lines(ann, b.macro)
         lines.append("")
     unanswered = [q for q in questions if q.sheet == sheet.name and q.id not in answered]
     if unanswered:
@@ -192,6 +202,8 @@ def render_questions_md(questions: list[Question], answered: Iterable[str]) -> s
         "# 業務担当者への質問リスト",
         "",
         "回答は `annotations/<シート名>.yaml` に記録し、`questions_answered` に ID を追加すること。",
+        "注釈 target の range 書式: セル範囲は A1 形式（複数はカンマ区切り）。"
+        "trigger_timing はマクロ名、hidden_reason は対象（列名など）をそのまま指定。",
         "",
     ]
     for q in questions:

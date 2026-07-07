@@ -54,6 +54,19 @@ def test_extract_preserves_annotations(make_xlsx):
     assert keep.read_text(encoding="utf-8") == "sheet: 見積入力\n"
 
 
+def test_reextract_removes_stale_structure_files(make_xlsx):
+    src = make_xlsx(_build, name="b.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / "b.sheetlens"
+    stale = proj / "structure" / "sheet-消えたシート.md"
+    stale.write_text("stale", encoding="utf-8")
+    keep = proj / "annotations" / "残す.yaml"
+    keep.write_text("sheet: 見積入力\n", encoding="utf-8")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    assert not stale.exists()
+    assert keep.exists()
+
+
 def test_extract_rejects_broken_file(tmp_path):
     bad = tmp_path / "broken.xlsx"
     bad.write_bytes(b"not a zip")

@@ -30,7 +30,19 @@ def test_absolute_refs_normalized():
     cells = [ir.Cell(ref=f"D{r}", formula=f"=VLOOKUP(B{r},単価マスタ!$A$2:$C$9,3,FALSE)") for r in (2, 3)]
     pats = aggregate_formulas(_sheet(cells))
     assert len(pats) == 1
-    assert pats[0].pattern == "=VLOOKUP(B{row},単価マスタ!$A{row}:$C{row},3,FALSE)"
+    assert pats[0].pattern == "=VLOOKUP(B{row},単価マスタ!$A$2:$C$9,3,FALSE)"
+
+
+def test_absolute_range_deviation_detected():
+    cells = [
+        ir.Cell(ref=f"D{r}", formula=f"=VLOOKUP(B{r},$A$2:$C$9,3,0)")
+        for r in range(2, 8)
+        if r != 5
+    ]
+    cells.append(ir.Cell(ref="D5", formula="=VLOOKUP(B5,$A$2:$C$5,3,0)"))
+    pats = aggregate_formulas(_sheet(cells))
+    main = next(p for p in pats if p.exceptions)
+    assert main.exceptions == ["D5: =VLOOKUP(B5,$A$2:$C$5,3,0)"]
 
 
 def test_function_names_and_string_literals_survive():

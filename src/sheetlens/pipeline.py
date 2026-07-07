@@ -1,9 +1,10 @@
 import json
+import shutil
 from pathlib import Path
 
 from pydantic import BaseModel
 
-from sheetlens.annotations.schema import SheetAnnotations, find_orphans, load_annotations
+from sheetlens.annotations.schema import SheetAnnotations, find_orphans, load_annotations, split_ranges
 from sheetlens.detectors.formula_patterns import FormulaPattern, aggregate_formulas
 from sheetlens.detectors.questions import Question, generate_questions
 from sheetlens.detectors.regions import Region, detect_regions
@@ -29,6 +30,33 @@ def analyze(wb: ir.Workbook) -> Analysis:
 
 def _safe(name: str) -> str:
     return name.replace("/", "_")
+
+
+def find_unwoven(wb: ir.Workbook, analysis: Analysis, anns: list[SheetAnnotations]) -> list[str]:
+    macros = {b.macro for b in wb.buttons}
+    warnings: list[str] = []
+    for ann in anns:
+        sheet = next((s for s in wb.sheets if s.name == ann.sheet), None)
+        if sheet is None:
+            continue
+        keys: set[str] = {r.range for r in analysis.regions.get(ann.sheet, [])}
+        for v in sheet.validations:
+            keys.update(v.ranges)
+        keys.update(cf.range for cf in sheet.conditional_formats)
+        for t in ann.targets:
+            if not t.range or t.kind == "hidden_reason":
+                continue
+            if t.kind == "trigger_timing":
+                if t.range not in macros:
+                    warnings.append(
+                        f"{ann.sheet}!{t.range}: 該当するマクロがありません（織り込まれません）"
+                    )
+                continue
+            if not any(part in keys for part in split_ranges(t.range)):
+                warnings.append(
+                    f"{ann.sheet}!{t.range}: どの構造要素にも一致しませんでした（織り込まれません）"
+                )
+    return warnings
 
 
 def _write_views(
@@ -62,17 +90,23 @@ def _write_views(
 def extract_workbook(src: Path, out: Path | None = None) -> Path:
     wb = read_workbook(src)
     proj = out or src.with_name(src.stem + ".sheetlens")
-    (proj / "structure").mkdir(parents=True, exist_ok=True)
+    structure_dir = proj / "structure"
+    if structure_dir.exists():
+        shutil.rmtree(structure_dir)  # structure/ は常に再生成可能（annotations/ には触れない）
+    structure_dir.mkdir(parents=True)
     (proj / "annotations").mkdir(exist_ok=True)  # 既存の中身には触れない
-    (proj / "structure" / "raw.json").write_text(wb.model_dump_json(indent=2), encoding="utf-8")
+    (structure_dir / "raw.json").write_text(wb.model_dump_json(indent=2), encoding="utf-8")
     (proj / "manifest.json").write_text(
         json.dumps(build_manifest(wb), ensure_ascii=False, indent=2), encoding="utf-8"
     )
     if wb.vba_modules:
-        vba_dir = proj / "structure" / "vba"
+        vba_dir = structure_dir / "vba"
         vba_dir.mkdir(exist_ok=True)
         for m in wb.vba_modules:
-            (vba_dir / f"{_safe(m.name)}.bas").write_text(m.code, encoding="utf-8")
+            name = _safe(m.name)
+            if "." not in name:
+                name += ".bas"
+            (vba_dir / name).write_text(m.code, encoding="utf-8")
     # extract は注釈なしのビューを書く（織り込みは compile の仕事）
     _write_views(proj, wb, analyze(wb), [], set())
     return proj
@@ -84,5 +118,6 @@ def compile_project(proj: Path) -> list[str]:
     )
     anns = load_annotations(proj / "annotations")
     answered = {qid for a in anns for qid in a.questions_answered}
-    _write_views(proj, wb, analyze(wb), anns, answered)
-    return find_orphans(wb, anns)
+    analysis = analyze(wb)
+    _write_views(proj, wb, analysis, anns, answered)
+    return find_orphans(wb, anns) + find_unwoven(wb, analysis, anns)

@@ -1,5 +1,5 @@
 from sheetlens.model import ir
-from sheetlens.renderers.machine import build_manifest, sheet_dependencies
+from sheetlens.renderers.machine import build_manifest, external_references, sheet_dependencies
 
 
 def _wb():
@@ -51,6 +51,44 @@ def test_dependencies_no_substring_false_positive():
         ],
     )
     assert sheet_dependencies(wb) == {"入力": ["マスタ", "単価マスタ"], "単価マスタ": [], "マスタ": []}
+
+
+def test_dependencies_include_validation_and_cf():
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[
+            ir.Sheet(
+                name="入力",
+                validations=[
+                    ir.ValidationRule(
+                        ranges=["B5"],
+                        type="list",
+                        formula1="=区分マスタ!$A$2:$A$3",
+                    )
+                ],
+                conditional_formats=[
+                    ir.ConditionalFormat(
+                        range="F1:F9",
+                        rule_type="expression",
+                        formula="判定!$A$1>0",
+                    )
+                ],
+            ),
+            ir.Sheet(name="区分マスタ"),
+            ir.Sheet(name="判定"),
+        ],
+    )
+    assert sheet_dependencies(wb)["入力"] == ["判定", "区分マスタ"]
+
+
+def test_external_references_index_form():
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[ir.Sheet(name="s", cells=[ir.Cell(ref="A1", formula="=[1]原価!B2")])],
+    )
+    assert external_references(wb) == ["外部ブック[1]（インデックス形式・未解決）"]
 
 
 def test_manifest_shape():

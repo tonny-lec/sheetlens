@@ -3,6 +3,7 @@ import re
 from sheetlens.model import ir
 
 _EXT_RE = re.compile(r"\[([^\]]+\.xls[xmb]?)\]")
+_EXT_IDX_RE = re.compile(r"\[(\d+)\]")
 
 
 def external_references(wb: ir.Workbook) -> list[str]:
@@ -11,6 +12,8 @@ def external_references(wb: ir.Workbook) -> list[str]:
         for cell in sheet.cells:
             if cell.formula:
                 found.update(_EXT_RE.findall(cell.formula))
+                for idx in _EXT_IDX_RE.findall(cell.formula):
+                    found.add(f"外部ブック[{idx}]（インデックス形式・未解決）")
     return sorted(found)
 
 
@@ -25,11 +28,12 @@ def sheet_dependencies(wb: ir.Workbook) -> dict[str, list[str]]:
     deps: dict[str, list[str]] = {}
     for sheet in wb.sheets:
         found: set[str] = set()
-        for cell in sheet.cells:
-            if not cell.formula:
-                continue
+        texts = [cell.formula for cell in sheet.cells if cell.formula]
+        texts.extend(v.formula1 for v in sheet.validations if v.formula1)
+        texts.extend(cf.formula for cf in sheet.conditional_formats if cf.formula)
+        for text in texts:
             for name in names:
-                if name != sheet.name and patterns[name].search(cell.formula):
+                if name != sheet.name and patterns[name].search(text):
                     found.add(name)
         deps[sheet.name] = sorted(found)
     return deps

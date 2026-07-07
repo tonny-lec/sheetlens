@@ -8,7 +8,10 @@ app = typer.Typer(help="業務 Excel を AI が誤読しない中間表現に変
 
 
 @app.command()
-def extract(file: Path, out: Path | None = typer.Option(None, "-o", "--out")) -> None:
+def extract(
+    file: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
+    out: Path | None = typer.Option(None, "-o", "--out"),
+) -> None:
     """xlsx/xlsm から構造層と questions.md を生成する。"""
     from sheetlens.pipeline import extract_workbook
 
@@ -26,6 +29,10 @@ def compile_cmd(project: Path) -> None:
     from sheetlens.annotations.schema import AnnotationError
     from sheetlens.pipeline import compile_project
 
+    raw = project / "structure" / "raw.json"
+    if not raw.exists():
+        typer.echo(f"エラー: {project} は sheetlens プロジェクトではありません（structure/raw.json がありません）")
+        raise typer.Exit(1)
     try:
         orphans = compile_project(project)
     except AnnotationError as e:
@@ -41,19 +48,22 @@ def check(project: Path) -> None:
     """孤立注釈・未回答質問・スキーマ違反を報告する。"""
     from sheetlens.annotations.schema import AnnotationError, find_orphans, load_annotations
     from sheetlens.model import ir
-    from sheetlens.pipeline import analyze
+    from sheetlens.pipeline import analyze, find_unwoven
 
-    wb = ir.Workbook.model_validate_json(
-        (project / "structure" / "raw.json").read_text(encoding="utf-8")
-    )
+    raw = project / "structure" / "raw.json"
+    if not raw.exists():
+        typer.echo(f"エラー: {project} は sheetlens プロジェクトではありません（structure/raw.json がありません）")
+        raise typer.Exit(1)
+    wb = ir.Workbook.model_validate_json(raw.read_text(encoding="utf-8"))
     try:
         anns = load_annotations(project / "annotations")
     except AnnotationError as e:
         typer.echo(f"注釈エラー: {e}")
         raise typer.Exit(1) from e
-    for o in find_orphans(wb, anns):
-        typer.echo(f"孤立注釈: {o}")
-    questions = analyze(wb).questions
+    analysis = analyze(wb)
+    for o in find_orphans(wb, anns) + find_unwoven(wb, analysis, anns):
+        typer.echo(f"警告（孤立注釈）: {o}")
+    questions = analysis.questions
     answered = {qid for a in anns for qid in a.questions_answered}
     unanswered = sum(1 for q in questions if q.id not in answered)
     typer.echo(f"未回答質問: {unanswered} / {len(questions)}")
