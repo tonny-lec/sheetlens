@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 from sheetlens.detectors.util import runs
 from sheetlens.model import ir
 
-_ROW_RE = re.compile(r"(?<![A-Za-z0-9_$])(\$?[A-Z]{1,3})\$?\d+")
+_STRING_RE = re.compile(r'("(?:[^"]|"")*")')
+_ROW_RE = re.compile(r"(?<![A-Za-z0-9_$])(\$?[A-Z]{1,3})\$?\d+(?![\w(])")
 
 
 class FormulaPattern(BaseModel):
@@ -18,7 +19,10 @@ class FormulaPattern(BaseModel):
 
 
 def _normalize(formula: str) -> str:
-    return _ROW_RE.sub(lambda m: m.group(1) + "{row}", formula)
+    parts = _STRING_RE.split(formula)
+    for i in range(0, len(parts), 2):  # 偶数インデックスのみ（文字列リテラルの外側）
+        parts[i] = _ROW_RE.sub(lambda m: m.group(1) + "{row}", parts[i])
+    return "".join(parts)
 
 
 def aggregate_formulas(sheet: ir.Sheet) -> list[FormulaPattern]:
@@ -46,10 +50,20 @@ def aggregate_formulas(sheet: ir.Sheet) -> list[FormulaPattern]:
         for norm, group in groups.items():
             if norm == majority:
                 continue
-            for row, cell in group:
-                if main_rows[0] <= row <= main_rows[-1]:
-                    main.exceptions.append(f"{cell.ref}: {cell.formula}")
-                else:
-                    patterns.append(FormulaPattern(ranges=[cell.ref], pattern=norm, example=cell.formula))
+            inside = [(r, c) for r, c in group if main_rows[0] <= r <= main_rows[-1]]
+            outside = [(r, c) for r, c in group if not (main_rows[0] <= r <= main_rows[-1])]
+            main.exceptions.extend(f"{c.ref}: {c.formula}" for _, c in inside)
+            if outside:
+                out_rows = [r for r, _ in outside]
+                patterns.append(
+                    FormulaPattern(
+                        ranges=[
+                            f"{col}{a}:{col}{b}" if a != b else f"{col}{a}"
+                            for a, b in runs(out_rows)
+                        ],
+                        pattern=norm,
+                        example=outside[0][1].formula,
+                    )
+                )
         patterns.append(main)
     return patterns

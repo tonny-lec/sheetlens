@@ -1,4 +1,5 @@
 from sheetlens.detectors.formula_patterns import aggregate_formulas
+from sheetlens.detectors.util import runs
 from sheetlens.model import ir
 
 
@@ -30,3 +31,23 @@ def test_absolute_refs_normalized():
     pats = aggregate_formulas(_sheet(cells))
     assert len(pats) == 1
     assert pats[0].pattern == "=VLOOKUP(B{row},単価マスタ!$A{row}:$C{row},3,FALSE)"
+
+
+def test_function_names_and_string_literals_survive():
+    cells = [ir.Cell(ref=f"D{r}", formula=f'=LOG10(A{r})+IF(B{r}="AB123",1,0)') for r in (2, 3)]
+    pats = aggregate_formulas(_sheet(cells))
+    assert len(pats) == 1
+    assert pats[0].pattern == '=LOG10(A{row})+IF(B{row}="AB123",1,0)'
+
+
+def test_out_of_range_minority_aggregated_into_ranges():
+    cells = [ir.Cell(ref=f"E{r}", formula=f"=C{r}*D{r}") for r in range(11, 21)]
+    cells += [ir.Cell(ref=f"E{r}", formula=f"=SUM(A{r}:D{r})") for r in (25, 26)]
+    pats = aggregate_formulas(_sheet(cells))
+    assert len(pats) == 2
+    minority = next(p for p in pats if p.pattern == "=SUM(A{row}:D{row})")
+    assert minority.ranges == ["E25:E26"]
+
+
+def test_runs_empty():
+    assert runs([]) == []
