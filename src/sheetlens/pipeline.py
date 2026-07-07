@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from sheetlens.annotations.schema import SheetAnnotations
+from sheetlens.annotations.schema import SheetAnnotations, find_orphans, load_annotations
 from sheetlens.detectors.formula_patterns import FormulaPattern, aggregate_formulas
 from sheetlens.detectors.questions import Question, generate_questions
 from sheetlens.detectors.regions import Region, detect_regions
@@ -76,3 +76,13 @@ def extract_workbook(src: Path, out: Path | None = None) -> Path:
     # extract は注釈なしのビューを書く（織り込みは compile の仕事）
     _write_views(proj, wb, analyze(wb), [], set())
     return proj
+
+
+def compile_project(proj: Path) -> list[str]:
+    wb = ir.Workbook.model_validate_json(
+        (proj / "structure" / "raw.json").read_text(encoding="utf-8")
+    )
+    anns = load_annotations(proj / "annotations")
+    answered = {qid for a in anns for qid in a.questions_answered}
+    _write_views(proj, wb, analyze(wb), anns, answered)
+    return find_orphans(wb, anns)

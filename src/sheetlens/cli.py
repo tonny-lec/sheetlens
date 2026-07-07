@@ -23,8 +23,17 @@ def extract(file: Path, out: Path | None = typer.Option(None, "-o", "--out")) ->
 @app.command(name="compile")
 def compile_cmd(project: Path) -> None:
     """構造層 + 注釈を統合した Markdown を再生成する。"""
-    typer.echo("compile: 未実装")
-    raise typer.Exit(1)
+    from sheetlens.annotations.schema import AnnotationError
+    from sheetlens.pipeline import compile_project
+
+    try:
+        orphans = compile_project(project)
+    except AnnotationError as e:
+        typer.echo(f"注釈エラー: {e}")
+        raise typer.Exit(1) from e
+    for o in orphans:
+        typer.echo(f"警告（孤立注釈）: {o}")
+    typer.echo(f"再生成しました: {project}")
 
 
 @app.command()
