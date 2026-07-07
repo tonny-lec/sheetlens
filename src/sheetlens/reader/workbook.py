@@ -12,6 +12,13 @@ def _coerce(value: object) -> ir.Primitive:
     return str(value)  # datetime 等は文字列化
 
 
+def _formula_text(raw: object) -> str | None:
+    if isinstance(raw, str):
+        return raw
+    text = getattr(raw, "text", None)
+    return text if isinstance(text, str) else None
+
+
 def read_workbook(path: Path) -> ir.Workbook:
     data = path.read_bytes()
     keep_vba = path.suffix.lower() in (".xlsm", ".xltm")
@@ -28,7 +35,12 @@ def read_workbook(path: Path) -> ir.Workbook:
                     continue
                 if c.data_type == "f":
                     raw = c.value
-                    formula = raw if isinstance(raw, str) else str(getattr(raw, "text", raw))
+                    formula = _formula_text(raw)
+                    if formula is None:
+                        gaps.append(
+                            f"{ws_f.title}!{c.coordinate}: 未対応の数式型 "
+                            f"{type(raw).__name__} のため数式を抽出できませんでした"
+                        )
                     cells.append(
                         ir.Cell(
                             ref=c.coordinate,

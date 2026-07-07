@@ -1,4 +1,6 @@
-from sheetlens.reader.workbook import read_workbook
+from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
+
+from sheetlens.reader.workbook import _formula_text, read_workbook
 
 
 def _build(wb):
@@ -28,3 +30,9 @@ def test_read_cells_formulas_merges(make_xlsx):
     assert cells["C3"].formula == "=B3*100"
     assert "D" in sheet.hidden_cols
     assert wb.sheets[1].hidden is True
+
+
+def test_formula_text_unwraps_known_types():
+    assert _formula_text("=A1*2") == "=A1*2"
+    assert _formula_text(ArrayFormula("A1:A3", "=SUM(B1:B3)")) == "=SUM(B1:B3)"
+    assert _formula_text(DataTableFormula("A1")) is None
