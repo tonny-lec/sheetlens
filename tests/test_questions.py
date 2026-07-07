@@ -24,7 +24,15 @@ def test_rules_produce_expected_categories():
     qs = generate_questions(wb, regions, {"入力": []})
     cats = {q.category for q in qs}
     assert cats == {"sheet_role", "input_source", "dropdown_semantics", "alert_action", "trigger_timing", "hidden_reason"}
-    assert [q.id for q in qs] == [f"q-{i:03d}" for i in range(1, len(qs) + 1)]
+    assert [(q.id, q.category, q.target) for q in qs] == [
+        ("q-001", "sheet_role", "入力"),
+        ("q-002", "hidden_reason", "D"),
+        ("q-003", "input_source", "A3:B8"),
+        ("q-004", "dropdown_semantics", "C5"),
+        ("q-005", "alert_action", "F11:F30"),
+        ("q-006", "trigger_timing", "Module1.Register"),
+        ("q-007", "trigger_timing", "Sheet1.cls.Worksheet_Change"),
+    ]
     # A3:B8 は数式を含まないので input_source、A10:F30 は E11 の数式を含むので対象外
     targets = [q.target for q in qs if q.category == "input_source"]
     assert targets == ["A3:B8"]
