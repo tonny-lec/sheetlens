@@ -32,6 +32,10 @@ def _ann_lines(ann: SheetAnnotations | None, rng: str) -> list[str]:
     return lines + [""] if lines else []
 
 
+def _cell_text(text: str) -> str:
+    return text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ").replace("|", "\\|")
+
+
 def _grid(sheet: ir.Sheet) -> list[str]:
     if not sheet.cells or not sheet.used_range:
         return ["（空シート）", ""]
@@ -64,7 +68,7 @@ def _grid(sheet: ir.Sheet) -> list[str]:
             text = "" if cell is None else str(cell.value if cell.value is not None else cell.formula or "")
             if ref in anchors:
                 text = f"[{anchors[ref]} 結合] {text}".strip()
-            row.append(text.replace("|", "\\|"))
+            row.append(_cell_text(text))
         lines.append(f"| {r} | " + " | ".join(row) + " |")
     if trunc:
         lines.append("")
@@ -121,7 +125,8 @@ def render_sheet_md(
         for v in sheet.validations:
             choices = f" 選択肢: {', '.join(v.choices)}" if v.choices else ""
             lines.append(f"- {', '.join(v.ranges)}: {v.type}（{v.formula1 or ''}）{choices}")
-            lines += _ann_lines(ann, v.ranges[0])
+            for rng in v.ranges:
+                lines += _ann_lines(ann, rng)
         lines.append("")
     if sheet.conditional_formats:
         lines += ["## 条件付き書式", ""]

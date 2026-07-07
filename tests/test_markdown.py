@@ -54,6 +54,35 @@ def test_annotations_and_unanswered_woven_in():
     assert "q-001" not in md_answered
 
 
+def test_grid_escapes_newlines_and_pipes():
+    sheet = ir.Sheet(
+        name="s",
+        used_range="A1:B1",
+        cells=[ir.Cell(ref="A1", value="行1\n行2"), ir.Cell(ref="B1", value="a|b")],
+    )
+    md = render_sheet_md(sheet, [], [], [], [])
+    grid_lines = [line for line in md.splitlines() if line.startswith("| 1 |")]
+    assert grid_lines == ["| 1 | 行1 行2 | a\\|b |"]
+
+
+def test_validation_with_multiple_ranges_and_empty_ranges_safe():
+    ann = SheetAnnotations(
+        sheet="s",
+        targets=[AnnotationTarget(range="D2", kind="dropdown_semantics", values={"はい": "承認する"})],
+    )
+    sheet = ir.Sheet(
+        name="s",
+        used_range="A1:D5",
+        cells=[ir.Cell(ref="A1", value="x")],
+        validations=[
+            ir.ValidationRule(ranges=["C2", "D2"], type="list", choices=["はい", "いいえ"]),
+            ir.ValidationRule(ranges=[], type="custom"),
+        ],
+    )
+    md = render_sheet_md(sheet, [], [], [], [], ann)
+    assert "承認する" in md  # 2番目の range にも注釈が織り込まれる
+
+
 def test_readme_warns_on_gaps():
     wb = ir.Workbook(source_file="a.xlsx", sha256="00" * 32,
                      sheets=[ir.Sheet(name="s")], extraction_gaps=["x の抽出に失敗"])
