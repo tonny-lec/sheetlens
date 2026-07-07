@@ -4,6 +4,7 @@ from pathlib import Path
 import openpyxl
 
 from sheetlens.model import ir
+from sheetlens.reader.features import read_conditional_formats, read_validations
 
 
 def _coerce(value: object) -> ir.Primitive:
@@ -50,6 +51,16 @@ def read_workbook(path: Path) -> ir.Workbook:
                     )
                 else:
                     cells.append(ir.Cell(ref=c.coordinate, value=_coerce(c.value)))
+        try:
+            validations = read_validations(ws_f, wb_v)
+        except Exception as e:  # noqa: BLE001 — 欠落は gap として記録して継続
+            validations = []
+            gaps.append(f"{ws_f.title}: 入力規則の抽出に失敗 ({e})")
+        try:
+            cformats = read_conditional_formats(ws_f)
+        except Exception as e:  # noqa: BLE001
+            cformats = []
+            gaps.append(f"{ws_f.title}: 条件付き書式の抽出に失敗 ({e})")
         sheets.append(
             ir.Sheet(
                 name=ws_f.title,
@@ -60,6 +71,8 @@ def read_workbook(path: Path) -> ir.Workbook:
                 hidden_rows=sorted(k for k, v in ws_f.row_dimensions.items() if v.hidden),
                 cells=cells,
                 merged=[str(r) for r in ws_f.merged_cells.ranges],
+                validations=validations,
+                conditional_formats=cformats,
             )
         )
     defined = {}
