@@ -20,6 +20,39 @@ def test_dependencies():
     assert sheet_dependencies(_wb()) == {"見積入力": ["単価マスタ"], "単価マスタ": []}
 
 
+def test_dependencies_no_substring_false_positive():
+    a1_only = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[
+            ir.Sheet(
+                name="入力",
+                cells=[ir.Cell(ref="A1", formula="=VLOOKUP(B1,単価マスタ!A:C,3,0)")],
+            ),
+            ir.Sheet(name="単価マスタ"),
+            ir.Sheet(name="マスタ"),
+        ],
+    )
+    assert sheet_dependencies(a1_only) == {"入力": ["単価マスタ"], "単価マスタ": [], "マスタ": []}
+
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[
+            ir.Sheet(
+                name="入力",
+                cells=[
+                    ir.Cell(ref="A1", formula="=VLOOKUP(B1,単価マスタ!A:C,3,0)"),
+                    ir.Cell(ref="A2", formula="=マスタ!B2"),
+                ],
+            ),
+            ir.Sheet(name="単価マスタ"),
+            ir.Sheet(name="マスタ"),
+        ],
+    )
+    assert sheet_dependencies(wb) == {"入力": ["マスタ", "単価マスタ"], "単価マスタ": [], "マスタ": []}
+
+
 def test_manifest_shape():
     m = build_manifest(_wb())
     assert m["source_file"] == "a.xlsx"

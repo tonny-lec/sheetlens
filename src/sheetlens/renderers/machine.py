@@ -16,6 +16,12 @@ def external_references(wb: ir.Workbook) -> list[str]:
 
 def sheet_dependencies(wb: ir.Workbook) -> dict[str, list[str]]:
     names = [s.name for s in wb.sheets]
+    patterns = {
+        name: re.compile(
+            rf"(?<![\w.]){re.escape(name)}!|'{re.escape(name)}'!"
+        )
+        for name in names
+    }
     deps: dict[str, list[str]] = {}
     for sheet in wb.sheets:
         found: set[str] = set()
@@ -23,7 +29,7 @@ def sheet_dependencies(wb: ir.Workbook) -> dict[str, list[str]]:
             if not cell.formula:
                 continue
             for name in names:
-                if name != sheet.name and (f"'{name}'!" in cell.formula or f"{name}!" in cell.formula):
+                if name != sheet.name and patterns[name].search(cell.formula):
                     found.add(name)
         deps[sheet.name] = sorted(found)
     return deps
