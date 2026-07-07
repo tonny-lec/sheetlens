@@ -3,7 +3,7 @@ from typing import Literal
 
 import yaml
 from openpyxl.utils import range_boundaries
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from sheetlens.model import ir
 
@@ -13,6 +13,8 @@ class AnnotationError(Exception):
 
 
 class AnnotationTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     range: str | None = None
     kind: Literal[
         "input_source", "dropdown_semantics", "trigger_timing",
@@ -26,6 +28,8 @@ class AnnotationTarget(BaseModel):
 
 
 class SheetAnnotations(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     sheet: str
     role: str | None = None
     workflow_stage: str | None = None
@@ -59,7 +63,11 @@ def find_orphans(wb: ir.Workbook, anns: list[SheetAnnotations]) -> list[str]:
                 orphans.append(f"{ann.sheet}!{t.range}: シートが空です")
                 continue
             u_min_c, u_min_r, u_max_c, u_max_r = range_boundaries(sheet.used_range)
-            min_c, min_r, max_c, max_r = range_boundaries(t.range)
+            try:
+                min_c, min_r, max_c, max_r = range_boundaries(t.range)
+            except ValueError:
+                orphans.append(f"{ann.sheet}!{t.range}: range 指定が不正です")
+                continue
             if not (u_min_c <= min_c and u_min_r <= min_r and max_c <= u_max_c and max_r <= u_max_r):
                 orphans.append(
                     f"{ann.sheet}!{t.range}: 現在の使用範囲 {sheet.used_range} の外にあります"

@@ -42,6 +42,22 @@ def test_invalid_kind_raises_with_filename(tmp_path):
         load_annotations(tmp_path)
 
 
+def test_malformed_range_reported_not_crash(tmp_path):
+    (tmp_path / "a.yaml").write_text(
+        "sheet: 見積入力\ntargets:\n  - range: NOTARANGE\n    kind: free_note\n", encoding="utf-8"
+    )
+    orphans = find_orphans(_wb(), load_annotations(tmp_path))
+    assert any("NOTARANGE" in o and "不正" in o for o in orphans)
+
+
+def test_unknown_key_rejected(tmp_path):
+    (tmp_path / "typo.yaml").write_text(
+        "sheet: s\ntargets:\n  - kind: free_note\n    vlaue: oops\n", encoding="utf-8"
+    )
+    with pytest.raises(AnnotationError, match="typo.yaml"):
+        load_annotations(tmp_path)
+
+
 def test_orphan_detection(tmp_path):
     (tmp_path / "見積入力.yaml").write_text(VALID_YAML, encoding="utf-8")
     (tmp_path / "消えたシート.yaml").write_text("sheet: 消えたシート\n", encoding="utf-8")
