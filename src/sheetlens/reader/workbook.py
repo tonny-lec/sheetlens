@@ -4,7 +4,9 @@ from pathlib import Path
 import openpyxl
 
 from sheetlens.model import ir
+from sheetlens.reader.buttons import extract_buttons
 from sheetlens.reader.features import read_conditional_formats, read_validations
+from sheetlens.reader.vba import extract_vba
 
 
 def _coerce(value: object) -> ir.Primitive:
@@ -78,10 +80,22 @@ def read_workbook(path: Path) -> ir.Workbook:
     defined = {}
     for name, defn in wb_f.defined_names.items():
         defined[name] = defn.attr_text or ""
+    vba_modules: list[ir.VbaModule] = []
+    buttons: list[ir.ButtonLink] = []
+    try:
+        vba_modules = extract_vba(path)
+    except Exception as e:  # noqa: BLE001
+        gaps.append(f"VBA の抽出に失敗 ({e})")
+    try:
+        buttons = extract_buttons(path)
+    except Exception as e:  # noqa: BLE001
+        gaps.append(f"ボタン↔マクロ対応の抽出に失敗 ({e})")
     return ir.Workbook(
         source_file=path.name,
         sha256=hashlib.sha256(data).hexdigest(),
         sheets=sheets,
+        vba_modules=vba_modules,
+        buttons=buttons,
         defined_names=defined,
         extraction_gaps=gaps,
     )
