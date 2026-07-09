@@ -69,3 +69,32 @@ def test_load_items_reports_unreadable_item_and_continues(tmp_path: Path) -> Non
     assert len(issues) == 1
     assert issues[0].path == unreadable
     assert issues[0].message.startswith("課題ファイルを読めません: ")
+
+
+def test_parse_item_reports_mixed_unknown_keys_in_deterministic_order(tmp_path: Path) -> None:
+    path = tmp_path / "SL-001-mixed-keys.md"
+    write_item(path, valid_front() + "\nzeta: value\n1: value\nalpha: value")
+
+    item, issues = parse_item(path)
+
+    assert item is None
+    assert [issue.message for issue in issues] == [
+        "未知の front matter キーです: alpha",
+        "未知の front matter キーです: zeta",
+        "front matter キーは文字列で指定してください: 1",
+    ]
+
+
+def test_load_items_reports_mixed_unknown_keys_and_continues(tmp_path: Path) -> None:
+    invalid = tmp_path / "SL-001-mixed-keys.md"
+    write_item(invalid, valid_front() + "\nunknown: value\n1: value")
+    write_item(tmp_path / "SL-002-readable.md", valid_front("SL-002"))
+
+    items, issues = load_items(tmp_path)
+
+    assert [item.id for item in items] == ["SL-002"]
+    assert [issue.path for issue in issues] == [invalid, invalid]
+    assert [issue.message for issue in issues] == [
+        "未知の front matter キーです: unknown",
+        "front matter キーは文字列で指定してください: 1",
+    ]

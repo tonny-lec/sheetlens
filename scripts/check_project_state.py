@@ -50,6 +50,12 @@ def _issue(path: Path, message: str) -> ProjectIssue:
     return ProjectIssue(path=path, message=message)
 
 
+def _front_matter_key_sort_key(key: object) -> tuple[int, str, str]:
+    if isinstance(key, str):
+        return 0, "", key
+    return 1, type(key).__name__, repr(key)
+
+
 def parse_item(path: Path) -> tuple[ProjectItem | None, list[ProjectIssue]]:
     text = path.read_text(encoding="utf-8")
     match = FRONT_RE.match(text)
@@ -62,10 +68,13 @@ def parse_item(path: Path) -> tuple[ProjectItem | None, list[ProjectIssue]]:
     if not isinstance(raw, dict):
         return None, [_issue(path, "front matter は mapping で記述してください")]
 
-    issues = [
-        _issue(path, f"未知の front matter キーです: {key}")
-        for key in sorted(set(raw) - ALLOWED_KEYS)
-    ]
+    unknown_keys = sorted(set(raw) - ALLOWED_KEYS, key=_front_matter_key_sort_key)
+    issues = []
+    for key in unknown_keys:
+        if isinstance(key, str):
+            issues.append(_issue(path, f"未知の front matter キーです: {key}"))
+        else:
+            issues.append(_issue(path, f"front matter キーは文字列で指定してください: {key!r}"))
     required = ALLOWED_KEYS
     issues.extend(
         _issue(path, f"必須キーがありません: {key}")
