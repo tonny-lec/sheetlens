@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from scripts.check_project_state import (
     ProjectItem,
     dependency_closure,
@@ -332,6 +334,87 @@ def test_validate_items_rejects_plain_bullet_in_done_acceptance_criteria(
     assert "done では受け入れ条件をすべてチェックしてください" in messages
 
 
+@pytest.mark.parametrize("marker", ["-", "*", "+", "1.", "1)"])
+def test_validate_items_accepts_checked_done_criterion_for_each_list_marker(
+    tmp_path: Path,
+    marker: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"{marker} [x] 挙動を修正する",
+    )
+    item = project_item(
+        tmp_path,
+        status="done",
+        touches=("src/a.py",),
+        body=body + "pytest: passed\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert "done では受け入れ条件をすべてチェックしてください" not in messages
+
+
+@pytest.mark.parametrize("plain_marker", ["-", "*", "+", "1.", "1)"])
+def test_validate_items_rejects_mixed_plain_done_criterion_for_each_list_marker(
+    tmp_path: Path,
+    plain_marker: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"- [x] 挙動を修正する\n{plain_marker} 回帰テストを実行する",
+    )
+    item = project_item(
+        tmp_path,
+        status="done",
+        touches=("src/a.py",),
+        body=body + "pytest: passed\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert "done では受け入れ条件をすべてチェックしてください" in messages
+
+
+@pytest.mark.parametrize("empty_marker", ["-", "*", "+", "1.", "1)"])
+def test_validate_items_rejects_empty_done_criterion_for_each_list_marker(
+    tmp_path: Path,
+    empty_marker: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"- [x] 挙動を修正する\n{empty_marker}",
+    )
+    item = project_item(
+        tmp_path,
+        status="done",
+        touches=("src/a.py",),
+        body=body + "pytest: passed\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert "done では受け入れ条件をすべてチェックしてください" in messages
+
+
+def test_validate_items_ignores_fenced_checkbox_for_done(tmp_path: Path) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        "``` markdown\n- [x] example\n```",
+    )
+    item = project_item(
+        tmp_path,
+        status="done",
+        touches=("src/a.py",),
+        body=body + "pytest: passed\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert "done では受け入れ条件をすべてチェックしてください" in messages
+    assert "- [x] example" in section_text(item, "受け入れ条件")
+
+
 def test_validate_items_reports_each_disjoint_cycle(tmp_path: Path) -> None:
     items = [
         project_item(tmp_path, "SL-001", depends_on=("SL-002",)),
@@ -532,6 +615,31 @@ def test_validate_items_reports_missing_blocker_details(tmp_path: Path) -> None:
         status="blocked",
         touches=("src/a.py",),
         body=ready_body() + "\n## ブロッカー\n- 理由:\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert messages == [
+        "blocked では 理由 を記載してください",
+        "blocked では 解除条件 を記載してください",
+        "blocked では 次に確認すること を記載してください",
+    ]
+
+
+def test_validate_items_ignores_fenced_blocker_details(tmp_path: Path) -> None:
+    item = project_item(
+        tmp_path,
+        status="blocked",
+        touches=("src/a.py",),
+        body=(
+            ready_body()
+            + "\n## ブロッカー\n"
+            + "~~~ markdown\n"
+            + "- 理由: 外部サービス停止\n"
+            + "- 解除条件: サービス復旧\n"
+            + "- 次に確認すること: 稼働状況\n"
+            + "~~~\n"
+        ),
     )
 
     messages = [issue.message for issue in validate_items([item])]

@@ -25,8 +25,11 @@ ID_RE = re.compile(r"SL-\d{3}\Z")
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", re.S)
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})[^\r\n]*$")
 SECTION_HEADING_RE = re.compile(r"^## ([^\n]+)\r?\n", re.M)
-BULLET_RE = re.compile(r"^\s*-\s+\S.*$", re.M)
-CHECKBOX_RE = re.compile(r"^\s*-\s+\[([ xX])\]", re.M)
+LIST_ITEM_RE = re.compile(
+    r"^[ \t]*(?:[-+*]|\d{1,9}[.)])(?P<rest>(?:[ \t]+[^\r\n]*)?)\r?$",
+    re.M,
+)
+TASK_CHECKBOX_RE = re.compile(r"^\[([ xX])\][ \t]+\S.*$")
 MILESTONE_RE = re.compile(r"^## (M[1-4])(?:\s|$)", re.M)
 
 
@@ -207,6 +210,21 @@ def section_text(item: ProjectItem, name: str) -> str:
     )
 
 
+def _validation_section_text(item: ProjectItem, name: str) -> str:
+    return _mask_fenced_blocks(section_text(item, name)).strip()
+
+
+def _acceptance_criteria_complete(text: str) -> bool:
+    criteria = LIST_ITEM_RE.findall(text)
+    if not criteria:
+        return False
+    for criterion in criteria:
+        checkbox = TASK_CHECKBOX_RE.fullmatch(criterion.strip())
+        if checkbox is None or checkbox.group(1) == " ":
+            return False
+    return True
+
+
 def load_milestones(path: Path) -> tuple[set[str], list[ProjectIssue]]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -317,7 +335,7 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
                 issues.append(_issue(item.path, f"必須セクションがありません: {name}"))
         if item.status in {"ready", "in_progress", "blocked", "done"}:
             for name in ("背景と根本原因", "受け入れ条件", "対象外"):
-                if not section_text(item, name):
+                if not _validation_section_text(item, name):
                     issues.append(_issue(item.path, f"{item.status} では {name} を記載してください"))
             if not item.touches:
                 issues.append(_issue(item.path, f"{item.status} では touches が必須です"))
@@ -326,11 +344,11 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
         if item.status != "in_progress" and item.owner is not None:
             issues.append(_issue(item.path, "owner は in_progress のときだけ設定できます"))
         if item.status == "blocked":
-            blocker = section_text(item, "ブロッカー")
+            blocker = _validation_section_text(item, "ブロッカー")
             for label in ("理由", "解除条件", "次に確認すること"):
                 if not re.search(rf"^- {label}:\s*\S", blocker, re.M):
                     issues.append(_issue(item.path, f"blocked では {label} を記載してください"))
-        if item.status == "cancelled" and not section_text(item, "中止理由"):
+        if item.status == "cancelled" and not _validation_section_text(item, "中止理由"):
             issues.append(_issue(item.path, "cancelled では中止理由を記載してください"))
         if item.id in by_id and item.status in {"ready", "in_progress", "done"}:
             incomplete = [
@@ -341,18 +359,12 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
             for dep in incomplete:
                 issues.append(_issue(item.path, f"未完了の依存課題があります: {dep}"))
         if item.status == "done":
-            acceptance = section_text(item, "受け入れ条件")
-            bullets = BULLET_RE.findall(acceptance)
-            boxes = CHECKBOX_RE.findall(acceptance)
-            if (
-                not boxes
-                or len(boxes) != len(bullets)
-                or any(box == " " for box in boxes)
-            ):
+            acceptance = _validation_section_text(item, "受け入れ条件")
+            if not _acceptance_criteria_complete(acceptance):
                 issues.append(
                     _issue(item.path, "done では受け入れ条件をすべてチェックしてください")
                 )
-            if not section_text(item, "完了証拠"):
+            if not _validation_section_text(item, "完了証拠"):
                 issues.append(_issue(item.path, "done では完了証拠を記録してください"))
     for cycle in _cycles(by_id):
         issues.append(
