@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 import re
 import tempfile
@@ -274,10 +275,10 @@ def render_backlog(items: list[ProjectItem]) -> str:
 
 
 def validate_backlog(path: Path, expected: str) -> list[ProjectIssue]:
-    actual = path.read_text(encoding="utf-8") if path.exists() else ""
+    actual = path.read_bytes() if path.exists() else b""
     return (
         []
-        if actual == expected
+        if actual == expected.encode("utf-8")
         else [_issue(path, "backlog.md が課題ファイルと同期していません")]
     )
 
@@ -286,7 +287,16 @@ def write_backlog(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".backlog-", dir=path.parent, text=True)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        except BaseException:
+            try:
+                os.close(fd)
+            except OSError as exc:
+                if exc.errno != errno.EBADF:
+                    raise
+            raise
+        with handle:
             handle.write(text)
         Path(temporary).replace(path)
     except BaseException:

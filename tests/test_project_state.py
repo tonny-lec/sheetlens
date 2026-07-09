@@ -1,7 +1,10 @@
+import errno
+import os
 from pathlib import Path
 
 import pytest
 
+import scripts.check_project_state as project_state
 from scripts.check_project_state import (
     ProjectItem,
     dependency_closure,
@@ -85,6 +88,16 @@ src/example.py:10
 
 ## 完了証拠
 """
+
+
+def assert_fd_closed(fd: int) -> None:
+    try:
+        os.fstat(fd)
+    except OSError as exc:
+        assert exc.errno == errno.EBADF
+    else:
+        os.close(fd)
+        pytest.fail(f"file descriptor remains open: {fd}")
 
 
 def test_parse_item_returns_typed_item(tmp_path: Path) -> None:
@@ -1008,4 +1021,130 @@ def test_write_backlog_preserves_existing_file_and_cleans_temporary_on_failure(
         write_backlog(backlog, "replacement\n")
 
     assert backlog.read_text(encoding="utf-8") == "existing\n"
+    assert list(tmp_path.glob(".backlog-*")) == []
+
+
+def test_validate_backlog_detects_crlf_bytes_as_stale(tmp_path: Path) -> None:
+    backlog = tmp_path / "backlog.md"
+    expected = "first\nsecond\n"
+    backlog.write_bytes(expected.replace("\n", "\r\n").encode("utf-8"))
+
+    assert backlog.read_text(encoding="utf-8") == expected
+
+    issues = validate_backlog(backlog, expected)
+
+    assert [issue.message for issue in issues] == [
+        "backlog.md が課題ファイルと同期していません"
+    ]
+
+
+def test_write_backlog_closes_raw_fd_when_fdopen_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backlog = tmp_path / "backlog.md"
+    backlog.write_bytes(b"existing\n")
+    created: list[tuple[int, str]] = []
+    original_mkstemp = project_state.tempfile.mkstemp
+
+    def capture_mkstemp(*, prefix: str, dir: Path, text: bool) -> tuple[int, str]:
+        result = original_mkstemp(prefix=prefix, dir=dir, text=text)
+        created.append(result)
+        return result
+
+    def fail_fdopen(
+        fd: int,
+        mode: str,
+        *,
+        encoding: str,
+        newline: str,
+    ) -> None:
+        raise OSError("fdopen failed")
+
+    monkeypatch.setattr(project_state.tempfile, "mkstemp", capture_mkstemp)
+    monkeypatch.setattr(project_state.os, "fdopen", fail_fdopen)
+
+    with pytest.raises(OSError, match="fdopen failed"):
+        write_backlog(backlog, "replacement\n")
+
+    assert len(created) == 1
+    fd, temporary = created[0]
+    assert_fd_closed(fd)
+    assert backlog.read_bytes() == b"existing\n"
+    assert not Path(temporary).exists()
+
+
+def test_write_backlog_preserves_fdopen_error_when_fd_is_already_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backlog = tmp_path / "backlog.md"
+    backlog.write_bytes(b"existing\n")
+
+    def close_fd_and_fail(
+        fd: int,
+        mode: str,
+        *,
+        encoding: str,
+        newline: str,
+    ) -> None:
+        os.close(fd)
+        raise OSError("fdopen failed after closing fd")
+
+    monkeypatch.setattr(project_state.os, "fdopen", close_fd_and_fail)
+
+    with pytest.raises(OSError, match="fdopen failed after closing fd"):
+        write_backlog(backlog, "replacement\n")
+
+    assert backlog.read_bytes() == b"existing\n"
+    assert list(tmp_path.glob(".backlog-*")) == []
+
+
+def test_write_backlog_closes_handle_when_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backlog = tmp_path / "backlog.md"
+    backlog.write_bytes(b"existing\n")
+    original_fdopen = project_state.os.fdopen
+    opened = []
+    captured_fds: list[int] = []
+
+    class WriteFailingHandle:
+        def __init__(self, handle) -> None:
+            self.handle = handle
+
+        def __enter__(self):
+            self.handle.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def write(self, text: str) -> int:
+            raise OSError("write failed")
+
+    def failing_fdopen(
+        fd: int,
+        mode: str,
+        *,
+        encoding: str,
+        newline: str,
+    ) -> WriteFailingHandle:
+        captured_fds.append(fd)
+        handle = original_fdopen(
+            fd,
+            mode,
+            encoding=encoding,
+            newline=newline,
+        )
+        opened.append(handle)
+        return WriteFailingHandle(handle)
+
+    monkeypatch.setattr(project_state.os, "fdopen", failing_fdopen)
+
+    with pytest.raises(OSError, match="write failed"):
+        write_backlog(backlog, "replacement\n")
+
+    assert len(opened) == len(captured_fds) == 1
+    assert opened[0].closed
+    assert_fd_closed(captured_fds[0])
+    assert backlog.read_bytes() == b"existing\n"
     assert list(tmp_path.glob(".backlog-*")) == []
