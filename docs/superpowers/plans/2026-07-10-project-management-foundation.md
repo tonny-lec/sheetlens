@@ -233,6 +233,15 @@ git commit -m "feat: add project item parser"
 
 ### Task 2: 状態、本文、依存グラフの検証
 
+> **Completed at `beb5d29`:** 以下のコード例は初期実装の履歴であり、再適用しない。
+> 現在の `scripts/check_project_state.py` を正とする。承認済み実装は fence-aware section parsing、
+> validation-only masking、duplicate-free `_graph_index()`、入力順に依存しない cycle、
+> CommonMark 全 list marker の checkbox 検証を含む。後続タスクはこの invariant を維持する。
+
+承認済み regression は fenced heading/content、duplicate-ID graph 除外と曖昧依存、node/edge
+順を反転しても一定の cycle、`-`、`*`、`+`、`N.`、`N)` の checked/plain/empty/unchecked
+item をカバーしている。
+
 **Files:**
 - Modify: `scripts/check_project_state.py`
 - Modify: `tests/test_project_state.py`
@@ -462,10 +471,10 @@ git commit -m "feat: validate project item states"
 - Modify: `tests/test_project_state.py`
 
 **Interfaces:**
-- Consumes: `in_progress` の `depends_on`、`touches`、`owner`
+- Consumes: `in_progress` の `depends_on`、`touches`、`owner` と Task 2 の duplicate-free `_graph_index()`
 - Produces: `paths_conflict()`、`validate_parallel_work()`
 
-- [ ] **Step 1: 推移的依存、親子パス、owner 重複の失敗テストを書く**
+- [ ] **Step 1: 推移的依存、親子パス、owner 重複、決定性、重複 ID 除外の失敗テストを書く**
 
 ```python
 from scripts.check_project_state import validate_parallel_work
@@ -482,9 +491,44 @@ def test_parallel_work_rejects_transitive_dependency_and_parent_path(tmp_path: P
                        "worker-c", ready_body())
 
     messages = [issue.message for issue in validate_parallel_work([first, middle, last])]
+    reversed_messages = [
+        issue.message for issue in validate_parallel_work([last, middle, first])
+    ]
 
+    assert messages == reversed_messages
     assert "SL-001 と SL-003 は依存関係があるため並行実行できません" in messages
     assert "SL-001 と SL-003 の touches が競合しています: src/sheetlens <-> src/sheetlens/reader/a.py" in messages
+
+
+def test_parallel_work_rejects_duplicate_non_null_owner(tmp_path: Path) -> None:
+    first = ProjectItem(tmp_path / "SL-001-a.md", "SL-001", "A", "in_progress", "P1",
+                        "defect", "M1", (), ("src/a.py",), "worker-a", ready_body())
+    second = ProjectItem(tmp_path / "SL-002-b.md", "SL-002", "B", "in_progress", "P1",
+                         "defect", "M1", (), ("src/b.py",), "worker-a", ready_body())
+
+    messages = [issue.message for issue in validate_parallel_work([second, first])]
+
+    assert messages == ["SL-001 と owner が重複しています: worker-a"]
+
+
+def test_parallel_work_is_deterministic_and_excludes_duplicate_ids(tmp_path: Path) -> None:
+    duplicate_a = ProjectItem(
+        tmp_path / "SL-001-a.md", "SL-001", "A", "in_progress", "P1", "defect", "M1",
+        (), ("src/a.py",), "worker-a", ready_body(),
+    )
+    duplicate_b = ProjectItem(
+        tmp_path / "SL-001-b.md", "SL-001", "B", "in_progress", "P1", "defect", "M1",
+        ("SL-002",), ("src/b.py",), "worker-b", ready_body(),
+    )
+    unique = ProjectItem(
+        tmp_path / "SL-002.md", "SL-002", "C", "in_progress", "P1", "defect", "M1",
+        (), ("src/c.py",), "worker-c", ready_body(),
+    )
+
+    forward = validate_parallel_work([duplicate_a, duplicate_b, unique])
+    reverse = validate_parallel_work([unique, duplicate_b, duplicate_a])
+
+    assert forward == reverse == []
 ```
 
 - [ ] **Step 2: テストが未実装で失敗することを確認する**
@@ -509,22 +553,22 @@ def paths_conflict(left: str, right: str) -> bool:
 
 def validate_parallel_work(items: list[ProjectItem]) -> list[ProjectIssue]:
     issues: list[ProjectIssue] = []
-    by_id = {item.id: item for item in items}
-    active = [item for item in items if item.status == "in_progress"]
-    for item in active:
-        if not item.touches:
-            issues.append(_issue(item.path, "in_progress では touches が必須です"))
+    by_id, _ = _graph_index(items)
+    active = sorted(
+        (item for item in by_id.values() if item.status == "in_progress"),
+        key=lambda item: (item.id, item.path.as_posix()),
+    )
     for index, left in enumerate(active):
         for right in active[index + 1:]:
-            if left.owner == right.owner:
+            if left.owner is not None and left.owner == right.owner:
                 issues.append(_issue(right.path, f"{left.id} と owner が重複しています: {right.owner}"))
             left_deps = dependency_closure(left.id, by_id)
             right_deps = dependency_closure(right.id, by_id)
             if right.id in left_deps or left.id in right_deps:
                 issues.append(_issue(right.path,
                                      f"{left.id} と {right.id} は依存関係があるため並行実行できません"))
-            for left_path in left.touches:
-                for right_path in right.touches:
+            for left_path in sorted(left.touches):
+                for right_path in sorted(right.touches):
                     if paths_conflict(left_path, right_path):
                         issues.append(_issue(
                             right.path,
@@ -554,6 +598,7 @@ git commit -m "feat: validate parallel project work"
 - Modify: `tests/test_project_state.py`
 
 **Interfaces:**
+- Consumes: Task 2/3 の検証を通過した `list[ProjectItem]`
 - Produces: `render_backlog(items)`、`write_backlog(path, text)`、`validate_backlog()`
 
 - [ ] **Step 1: 並び順、リンク、stale 検出のテストを書く**
@@ -653,9 +698,10 @@ git commit -m "feat: render project backlog"
 - Modify: `tests/test_project_state.py`
 
 **Interfaces:**
+- Consumes: Task 2 の duplicate-free `_graph_index()` と Task 3/4 の validator/renderer
 - Produces: `eligible_items()`、`run(command, root)`、`main(argv)`
 
-- [ ] **Step 1: CLI の終了コードと next 順序のテストを書く**
+- [ ] **Step 1: eligibility、CLI の終了コード、next 順序のテストを書く**
 
 ```python
 from scripts.check_project_state import eligible_items, run
@@ -665,21 +711,95 @@ def test_next_returns_only_unblocked_ready_items(tmp_path: Path, capsys) -> None
     project = tmp_path / "docs" / "project"
     items_dir = project / "items"
     project.mkdir(parents=True)
-    (project / "roadmap.md").write_text("## M1 Test\n", encoding="utf-8")
+    (project / "roadmap.md").write_text("## M1 Test\n## M2 Test\n", encoding="utf-8")
     write_item(items_dir / "SL-001-first.md", valid_front().replace("status: proposed", "status: ready")
                .replace("touches: []", "touches: [src/a.py]"), ready_body())
     second_front = valid_front("SL-002")
     second_front = second_front.replace("depends_on: []", "depends_on: [SL-001]")
     second_front = second_front.replace("touches: []", "touches: [src/b.py]")
     write_item(items_dir / "SL-002-second.md", second_front, ready_body())
+    third_front = valid_front("SL-003").replace("status: proposed", "status: ready")
+    third_front = third_front.replace("priority: P1", "priority: P0")
+    third_front = third_front.replace("milestone: M1", "milestone: M2")
+    third_front = third_front.replace("touches: []", "touches: [src/c.py]")
+    write_item(items_dir / "SL-003-third.md", third_front, ready_body())
+    fourth_front = valid_front("SL-004").replace("status: proposed", "status: ready")
+    fourth_front = fourth_front.replace("touches: []", "touches: [src/d.py]")
+    write_item(items_dir / "SL-004-fourth.md", fourth_front, ready_body())
+    fifth_front = valid_front("SL-005").replace("status: proposed", "status: ready")
+    fifth_front = fifth_front.replace("milestone: M1", "milestone: M2")
+    fifth_front = fifth_front.replace("touches: []", "touches: [src/e.py]")
+    write_item(items_dir / "SL-005-fifth.md", fifth_front, ready_body())
     (project / "backlog.md").write_text("", encoding="utf-8")
 
     code = run("next", tmp_path)
 
     assert code == 0
     output = capsys.readouterr().out
-    assert "SL-001" in output
     assert "SL-002" not in output
+    assert [line for line in output.splitlines() if line.startswith("P")] == [
+        "P0 SL-003 安定質問ID / 並行可能",
+        "P1 SL-001 安定質問ID / 並行可能",
+        "P1 SL-004 安定質問ID / 並行可能",
+        "P1 SL-005 安定質問ID / 並行可能",
+    ]
+
+
+def test_eligible_items_excludes_non_done_missing_and_duplicate_dependencies(tmp_path: Path) -> None:
+    done = ProjectItem(
+        tmp_path / "SL-001.md", "SL-001", "Done", "done", "P1", "defect", "M1",
+        (), ("src/done.py",), None,
+        ready_body().replace("- [ ]", "- [x]") + "\ncommand: passed\n",
+    )
+    eligible = ProjectItem(
+        tmp_path / "SL-002.md", "SL-002", "Eligible", "ready", "P1", "defect", "M1",
+        ("SL-001",), ("src/eligible.py",), None, ready_body(),
+    )
+    pending = ProjectItem(
+        tmp_path / "SL-003.md", "SL-003", "Pending", "proposed", "P1", "defect", "M1",
+        (), (), None, ready_body(),
+    )
+    blocked = ProjectItem(
+        tmp_path / "SL-004.md", "SL-004", "Blocked", "ready", "P1", "defect", "M1",
+        ("SL-003",), ("src/blocked.py",), None, ready_body(),
+    )
+    missing = ProjectItem(
+        tmp_path / "SL-005.md", "SL-005", "Missing", "ready", "P1", "defect", "M1",
+        ("SL-999",), ("src/missing.py",), None, ready_body(),
+    )
+    duplicate_a = ProjectItem(
+        tmp_path / "SL-006-a.md", "SL-006", "Duplicate A", "ready", "P1", "defect", "M1",
+        (), ("src/a.py",), None, ready_body(),
+    )
+    duplicate_b = ProjectItem(
+        tmp_path / "SL-006-b.md", "SL-006", "Duplicate B", "ready", "P1", "defect", "M1",
+        (), ("src/b.py",), None, ready_body(),
+    )
+    ambiguous = ProjectItem(
+        tmp_path / "SL-007.md", "SL-007", "Ambiguous", "ready", "P1", "defect", "M1",
+        ("SL-006",), ("src/ambiguous.py",), None, ready_body(),
+    )
+    items = [ambiguous, duplicate_b, missing, pending, eligible, done, blocked, duplicate_a]
+
+    assert [item.id for item in eligible_items(items)] == ["SL-002"]
+    assert [item.id for item in eligible_items(list(reversed(items)))] == ["SL-002"]
+
+
+def test_next_prints_no_candidates_when_duplicate_state_is_invalid(tmp_path: Path, capsys) -> None:
+    project = tmp_path / "docs" / "project"
+    items_dir = project / "items"
+    project.mkdir(parents=True)
+    (project / "roadmap.md").write_text("## M1 Test\n", encoding="utf-8")
+    duplicate = valid_front().replace("status: proposed", "status: ready")
+    duplicate = duplicate.replace("touches: []", "touches: [src/a.py]")
+    write_item(items_dir / "SL-001-a.md", duplicate, ready_body())
+    write_item(items_dir / "SL-001-b.md", duplicate, ready_body())
+    (project / "backlog.md").write_text("", encoding="utf-8")
+
+    assert run("next", tmp_path) == 1
+    output = capsys.readouterr().out
+    assert "課題 ID が重複しています: SL-001" in output
+    assert " / 並行可能" not in output
 ```
 
 - [ ] **Step 2: CLI テストが未実装で失敗することを確認する**
@@ -696,11 +816,11 @@ from collections.abc import Sequence
 
 
 def eligible_items(items: list[ProjectItem]) -> list[ProjectItem]:
-    by_id = {item.id: item for item in items}
+    by_id, _ = _graph_index(items)
     return sorted(
-        (item for item in items
+        (item for item in by_id.values()
          if item.status == "ready"
-         and all(by_id.get(dep) is not None and by_id[dep].status == "done"
+         and all(dep in by_id and by_id[dep].status == "done"
                  for dep in item.depends_on)),
         key=lambda item: (PRIORITY_ORDER[item.priority], item.milestone, item.id),
     )
@@ -826,6 +946,9 @@ uv run python scripts/check_project_state.py next
 - `render`: 検証成功後に backlog をアトミックに再生成します。
 - `next`: 依存を満たした ready 課題と、現在の作業との競合を表示します。
 
+`next` は候補表示前に全状態を検証します。エラーが 1 件でもあれば終了コード 1 を返し、
+候補行や「並行可能」は表示しません。
+
 終了コードは成功が 0、管理状態の不正が 1、CLI の使用方法の誤りが 2 です。
 
 ## 状態遷移
@@ -870,7 +993,39 @@ owner: null
 
 本文には `背景と根本原因`、`根拠`、`受け入れ条件`、`対象外`、`実装計画`、
 `完了証拠` の各セクションを置きます。受け入れ条件は Markdown チェックボックスで
-記述します。
+記述します。backtick/tilde fence 内の見出し、本文、チェックボックスは例として保持されますが、
+状態検証には使われません。
+
+```markdown
+# SL-001 質問IDを再抽出後も安定させる
+
+## 背景と根本原因
+
+確認済みの原因を記載します。
+
+## 根拠
+
+`src/example.py:10`
+
+## 受け入れ条件
+
+- [ ] 実行可能な完了条件を記載します
+
+## 対象外
+
+今回扱わない範囲を記載します。
+
+## 実装計画
+
+着手時の計画をリンクします。
+
+## 完了証拠
+
+完了時にコマンドと結果を記録します。
+```
+
+`受け入れ条件` で `-`、`*`、`+`、`N.`、`N)` を list item として使う場合、すべてを
+非空のチェックボックスにします。`done` では全チェックボックスをチェック済みにします。
 
 ## Codex の作業手順
 

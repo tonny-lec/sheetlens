@@ -24,7 +24,9 @@
 ## 共通課題記述規約
 
 各課題は Foundation で確定した front matter の順序を使い、各 Step に列挙した metadata、
-touches、根本原因、根拠、受け入れ条件、対象外をそのまま記載する。本文見出しは
+touches、根本原因、根拠、受け入れ条件、対象外を課題本文へ記載する。各 Step で列挙した
+受け入れ条件は、1 条件につき 1 行の未チェック `- [ ] ...` item として直列化する。plain bullet
+や fenced example に置き換えない。本文見出しは
 `背景と根本原因`、`根拠`、`受け入れ条件`、`対象外`、`実装計画`、`完了証拠` の順とする。
 
 全課題の `実装計画` は次の文で開始する。
@@ -331,11 +333,13 @@ uv run python scripts/check_project_state.py check
 
 Expected: both counts are 17 and check exits 0
 
-- [ ] **Step 2: next が依存済み課題を除外することを確認する**
+- [ ] **Step 2: next が eligible な ready 課題だけを表示することを確認する**
 
 Run: `uv run python scripts/check_project_state.py next`
 
-Expected: output includes SL-001 and SL-005, and excludes SL-002, SL-003, SL-004, SL-015
+Expected: output includes ready の SL-001 と SL-005, and excludes dependency-bound proposed の
+SL-002, SL-003, SL-004, SL-015。未完了・欠損・重複 dependency の eligibility は Foundation
+Task 5 の focused tests で検証済みであること。
 
 - [ ] **Step 3: リポジトリ全体を検証する**
 
@@ -360,4 +364,4 @@ Expected: Ruff clean、全テスト PASS、diff check clean、意図した管理
 - [ ] `rg -n 'T[B]D|T[O]DO|F[I]XME|implement[ ]later|fill[ ]in' docs/project/items` が該当なしであることを確認する。
 - [ ] `uv run python scripts/check_project_state.py render && uv run python scripts/check_project_state.py check` を実行する。
 - [ ] `uv run ruff check . && uv run pytest` を実行する。
-- [ ] backlog が 17 行で、依存付き課題が `next` に出ないことを確認する。
+- [ ] backlog が 17 行で、`next` が eligible な `ready` 課題だけを表示することを確認する。
