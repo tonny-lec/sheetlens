@@ -23,7 +23,9 @@ VALID_TYPE = {"defect", "refactor", "enhancement", "quality"}
 VALID_MILESTONE = {"M1", "M2", "M3", "M4"}
 ID_RE = re.compile(r"SL-\d{3}\Z")
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", re.S)
-SECTION_RE = re.compile(r"^## ([^\n]+)\r?\n(.*?)(?=^## |\Z)", re.M | re.S)
+FENCE_OPEN_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})[^\r\n]*$")
+SECTION_HEADING_RE = re.compile(r"^## ([^\n]+)\r?\n", re.M)
+BULLET_RE = re.compile(r"^\s*-\s+\S.*$", re.M)
 CHECKBOX_RE = re.compile(r"^\s*-\s+\[([ xX])\]", re.M)
 MILESTONE_RE = re.compile(r"^## (M[1-4])(?:\s|$)", re.M)
 
@@ -149,13 +151,58 @@ def load_items(items_dir: Path) -> tuple[list[ProjectItem], list[ProjectIssue]]:
     return items, issues
 
 
+def _mask_fenced_blocks(text: str) -> str:
+    masked_lines: list[str] = []
+    fence_char: str | None = None
+    fence_length = 0
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        if fence_char is None:
+            match = FENCE_OPEN_RE.fullmatch(content)
+            if match:
+                fence = match.group("fence")
+                fence_char = fence[0]
+                fence_length = len(fence)
+        else:
+            candidate = content.lstrip(" ")
+            indent = len(content) - len(candidate)
+            run_length = len(candidate) - len(candidate.lstrip(fence_char))
+            if (
+                indent <= 3
+                and run_length >= fence_length
+                and not candidate[run_length:].strip(" \t")
+            ):
+                fence_char = None
+                fence_length = 0
+        if fence_char is not None or FENCE_OPEN_RE.fullmatch(content):
+            masked_lines.append(
+                "".join(character if character in "\r\n" else " " for character in line)
+            )
+        else:
+            masked_lines.append(line)
+    return "".join(masked_lines)
+
+
+def _sections(text: str) -> list[tuple[str, str]]:
+    headings = list(SECTION_HEADING_RE.finditer(_mask_fenced_blocks(text)))
+    return [
+        (
+            heading.group(1).strip(),
+            text[
+                heading.end() : (
+                    headings[index + 1].start()
+                    if index + 1 < len(headings)
+                    else len(text)
+                )
+            ].strip(),
+        )
+        for index, heading in enumerate(headings)
+    ]
+
+
 def section_text(item: ProjectItem, name: str) -> str:
     return next(
-        (
-            content.strip()
-            for heading, content in SECTION_RE.findall(item.body)
-            if heading.strip() == name
-        ),
+        (content for heading, content in _sections(item.body) if heading == name),
         "",
     )
 
@@ -165,7 +212,7 @@ def load_milestones(path: Path) -> tuple[set[str], list[ProjectIssue]]:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         return set(), [_issue(path, f"roadmap.md を読めません: {exc}")]
-    return set(MILESTONE_RE.findall(text)), []
+    return set(MILESTONE_RE.findall(_mask_fenced_blocks(text))), []
 
 
 def validate_milestones(
@@ -179,6 +226,7 @@ def validate_milestones(
 
 
 def dependency_closure(item_id: str, by_id: dict[str, ProjectItem]) -> set[str]:
+    """Return declared dependencies, traversing only nodes present in ``by_id``."""
     seen: set[str] = set()
     item = by_id.get(item_id)
     stack = list(item.depends_on) if item else []
@@ -192,8 +240,20 @@ def dependency_closure(item_id: str, by_id: dict[str, ProjectItem]) -> set[str]:
     return seen
 
 
-def _cycles(items: list[ProjectItem]) -> list[list[str]]:
-    by_id = {item.id: item for item in items}
+def _graph_index(items: list[ProjectItem]) -> tuple[dict[str, ProjectItem], set[str]]:
+    grouped: dict[str, list[ProjectItem]] = {}
+    for item in items:
+        grouped.setdefault(item.id, []).append(item)
+    duplicate_ids = {item_id for item_id, matches in grouped.items() if len(matches) > 1}
+    by_id = {
+        item_id: matches[0]
+        for item_id, matches in grouped.items()
+        if item_id not in duplicate_ids
+    }
+    return by_id, duplicate_ids
+
+
+def _cycles(by_id: dict[str, ProjectItem]) -> list[list[str]]:
     visiting: list[str] = []
     visited: set[str] = set()
     found: list[list[str]] = []
@@ -214,27 +274,34 @@ def _cycles(items: list[ProjectItem]) -> list[list[str]]:
         if item_id in visited or item_id not in by_id:
             return
         visiting.append(item_id)
-        for dep in by_id[item_id].depends_on:
+        for dep in sorted(by_id[item_id].depends_on):
             visit(dep)
         visiting.pop()
         visited.add(item_id)
 
-    for item in items:
-        visit(item.id)
-    return found
+    for item_id in sorted(by_id):
+        visit(item_id)
+    return sorted(found)
 
 
 def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
     issues: list[ProjectIssue] = []
-    by_id: dict[str, ProjectItem] = {}
-    for item in items:
-        if item.id in by_id:
-            issues.append(_issue(item.path, f"課題 ID が重複しています: {item.id}"))
-        else:
-            by_id[item.id] = item
+    by_id, duplicate_ids = _graph_index(items)
+    duplicate_items = sorted(
+        (item for item in items if item.id in duplicate_ids),
+        key=lambda item: (item.id, str(item.path)),
+    )
+    issues.extend(
+        _issue(item.path, f"課題 ID が重複しています: {item.id}")
+        for item in duplicate_items
+    )
     for item in items:
         for dep in item.depends_on:
-            if dep not in by_id:
+            if dep in duplicate_ids:
+                issues.append(
+                    _issue(item.path, f"依存先の課題 ID が重複しています: {dep}")
+                )
+            elif dep not in by_id:
                 issues.append(_issue(item.path, f"依存先が存在しません: {dep}"))
         required_sections = (
             "背景と根本原因",
@@ -245,7 +312,7 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
             "完了証拠",
         )
         for name in required_sections:
-            headings = {heading.strip() for heading, _ in SECTION_RE.findall(item.body)}
+            headings = {heading for heading, _ in _sections(item.body)}
             if name not in headings:
                 issues.append(_issue(item.path, f"必須セクションがありません: {name}"))
         if item.status in {"ready", "in_progress", "blocked", "done"}:
@@ -265,7 +332,7 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
                     issues.append(_issue(item.path, f"blocked では {label} を記載してください"))
         if item.status == "cancelled" and not section_text(item, "中止理由"):
             issues.append(_issue(item.path, "cancelled では中止理由を記載してください"))
-        if item.status in {"ready", "in_progress", "done"}:
+        if item.id in by_id and item.status in {"ready", "in_progress", "done"}:
             incomplete = [
                 dep
                 for dep in item.depends_on
@@ -274,14 +341,20 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
             for dep in incomplete:
                 issues.append(_issue(item.path, f"未完了の依存課題があります: {dep}"))
         if item.status == "done":
-            boxes = CHECKBOX_RE.findall(section_text(item, "受け入れ条件"))
-            if not boxes or any(box == " " for box in boxes):
+            acceptance = section_text(item, "受け入れ条件")
+            bullets = BULLET_RE.findall(acceptance)
+            boxes = CHECKBOX_RE.findall(acceptance)
+            if (
+                not boxes
+                or len(boxes) != len(bullets)
+                or any(box == " " for box in boxes)
+            ):
                 issues.append(
                     _issue(item.path, "done では受け入れ条件をすべてチェックしてください")
                 )
             if not section_text(item, "完了証拠"):
                 issues.append(_issue(item.path, "done では完了証拠を記録してください"))
-    for cycle in _cycles(items):
+    for cycle in _cycles(by_id):
         issues.append(
             _issue(
                 by_id[cycle[0]].path,

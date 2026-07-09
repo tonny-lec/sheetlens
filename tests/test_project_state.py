@@ -35,6 +35,7 @@ def project_item(
     tmp_path: Path,
     item_id: str = "SL-001",
     *,
+    filename: str | None = None,
     status: str = "proposed",
     milestone: str = "M1",
     depends_on: tuple[str, ...] = (),
@@ -43,7 +44,7 @@ def project_item(
     body: str = "",
 ) -> ProjectItem:
     return ProjectItem(
-        path=tmp_path / f"{item_id}.md",
+        path=tmp_path / (filename or f"{item_id}.md"),
         id=item_id,
         title=item_id,
         status=status,
@@ -179,10 +180,67 @@ src/example.py:10\r
     assert section_text(item, "存在しない見出し") == ""
 
 
+def test_section_text_ignores_fenced_h2_and_preserves_fenced_content(
+    tmp_path: Path,
+) -> None:
+    item = project_item(
+        tmp_path,
+        body=(
+            "````python\r\n"
+            "## 背景と根本原因\r\n"
+            "偽のセクション\r\n"
+            "````\r\n"
+            "## 背景と根本原因\r\n"
+            "実際の原因\r\n"
+            "~~~ markdown\r\n"
+            "## 根拠\r\n"
+            "偽の境界\r\n"
+            "~~~~\r\n"
+            "原因の続き\r\n"
+            "## 根拠\r\n"
+            "src/example.py:10\r\n"
+        ),
+    )
+
+    assert section_text(item, "背景と根本原因") == (
+        "実際の原因\r\n"
+        "~~~ markdown\r\n"
+        "## 根拠\r\n"
+        "偽の境界\r\n"
+        "~~~~\r\n"
+        "原因の続き"
+    )
+    assert section_text(item, "根拠") == "src/example.py:10"
+
+
 def test_load_milestones_reads_supported_roadmap_headings(tmp_path: Path) -> None:
     roadmap = tmp_path / "roadmap.md"
     roadmap.write_text(
         "# Roadmap\n\n## M1 Foundation\n\n### M2 nested\n\n## M4\n\n## M5 Later\n",
+        encoding="utf-8",
+    )
+
+    milestones, issues = load_milestones(roadmap)
+
+    assert milestones == {"M1", "M4"}
+    assert issues == []
+
+
+def test_load_milestones_ignores_headings_inside_fenced_code_blocks(
+    tmp_path: Path,
+) -> None:
+    roadmap = tmp_path / "roadmap.md"
+    roadmap.write_text(
+        (
+            "## M1 Foundation\r\n"
+            "````text\r\n"
+            "## M2 Fenced\r\n"
+            "````\r\n"
+            "~~~ roadmap\r\n"
+            "## M3 Also fenced\r\n"
+            "~~~~\r\n"
+            "## M4 Delivery\r\n"
+        ),
         encoding="utf-8",
     )
 
@@ -255,6 +313,25 @@ def test_validate_items_reports_cycle_and_invalid_done(tmp_path: Path) -> None:
     assert "done では完了証拠を記録してください" in messages
 
 
+def test_validate_items_rejects_plain_bullet_in_done_acceptance_criteria(
+    tmp_path: Path,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        "- [x] 挙動を修正する\n- 回帰テストを実行する",
+    )
+    item = project_item(
+        tmp_path,
+        status="done",
+        touches=("src/a.py",),
+        body=body + "pytest: passed\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert "done では受け入れ条件をすべてチェックしてください" in messages
+
+
 def test_validate_items_reports_each_disjoint_cycle(tmp_path: Path) -> None:
     items = [
         project_item(tmp_path, "SL-001", depends_on=("SL-002",)),
@@ -275,6 +352,40 @@ def test_validate_items_reports_each_disjoint_cycle(tmp_path: Path) -> None:
     ]
 
 
+def test_validate_items_cycle_messages_ignore_item_and_edge_order(
+    tmp_path: Path,
+) -> None:
+    forward = [
+        project_item(tmp_path, "SL-001", depends_on=("SL-002", "SL-003")),
+        project_item(tmp_path, "SL-002", depends_on=("SL-001",)),
+        project_item(tmp_path, "SL-003", depends_on=("SL-001",)),
+        project_item(tmp_path, "SL-004", depends_on=("SL-005",)),
+        project_item(tmp_path, "SL-005", depends_on=("SL-004",)),
+    ]
+    reversed_items_and_edges = [
+        project_item(tmp_path, "SL-005", depends_on=("SL-004",)),
+        project_item(tmp_path, "SL-004", depends_on=("SL-005",)),
+        project_item(tmp_path, "SL-003", depends_on=("SL-001",)),
+        project_item(tmp_path, "SL-002", depends_on=("SL-001",)),
+        project_item(tmp_path, "SL-001", depends_on=("SL-003", "SL-002")),
+    ]
+
+    def cycle_messages(items: list[ProjectItem]) -> list[str]:
+        return [
+            issue.message
+            for issue in validate_items(items)
+            if issue.message.startswith("依存関係が循環しています")
+        ]
+
+    expected = [
+        "依存関係が循環しています: SL-001 -> SL-002 -> SL-001",
+        "依存関係が循環しています: SL-001 -> SL-003 -> SL-001",
+        "依存関係が循環しています: SL-004 -> SL-005 -> SL-004",
+    ]
+    assert cycle_messages(forward) == expected
+    assert cycle_messages(reversed_items_and_edges) == expected
+
+
 def test_validate_items_reports_duplicate_id_and_missing_dependency(
     tmp_path: Path,
 ) -> None:
@@ -285,6 +396,66 @@ def test_validate_items_reports_duplicate_id_and_missing_dependency(
 
     assert "課題 ID が重複しています: SL-001" in messages
     assert "依存先が存在しません: SL-999" in messages
+
+
+def test_validate_items_excludes_duplicate_ids_from_cycle_graph(tmp_path: Path) -> None:
+    first = project_item(
+        tmp_path,
+        filename="SL-001-first.md",
+        body=ready_body(),
+    )
+    later_with_self_dependency = project_item(
+        tmp_path,
+        filename="SL-001-later.md",
+        depends_on=("SL-001",),
+        body=ready_body(),
+    )
+
+    issues = validate_items([first, later_with_self_dependency])
+
+    duplicate_issues = [
+        issue for issue in issues if issue.message == "課題 ID が重複しています: SL-001"
+    ]
+    assert [issue.path for issue in duplicate_issues] == [
+        first.path,
+        later_with_self_dependency.path,
+    ]
+    assert (
+        later_with_self_dependency.path,
+        "依存先の課題 ID が重複しています: SL-001",
+    ) in [(issue.path, issue.message) for issue in issues]
+    assert not any(issue.message.startswith("依存関係が循環しています") for issue in issues)
+
+
+def test_validate_items_reports_ambiguous_duplicate_dependency_without_status_check(
+    tmp_path: Path,
+) -> None:
+    first = project_item(
+        tmp_path,
+        filename="SL-001-first.md",
+        body=ready_body(),
+    )
+    second = project_item(
+        tmp_path,
+        filename="SL-001-second.md",
+        body=ready_body(),
+    )
+    dependent = project_item(
+        tmp_path,
+        "SL-002",
+        status="ready",
+        depends_on=("SL-001",),
+        touches=("src/dependent.py",),
+        body=ready_body(),
+    )
+
+    issues = validate_items([first, second, dependent])
+
+    assert (
+        dependent.path,
+        "依存先の課題 ID が重複しています: SL-001",
+    ) in [(issue.path, issue.message) for issue in issues]
+    assert not any(issue.message == "未完了の依存課題があります: SL-001" for issue in issues)
 
 
 def test_validate_items_reports_each_required_section(tmp_path: Path) -> None:
