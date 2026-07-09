@@ -9,10 +9,13 @@ from scripts.check_project_state import (
     load_milestones,
     parse_item,
     paths_conflict,
+    render_backlog,
     section_text,
+    validate_backlog,
     validate_items,
     validate_milestones,
     validate_parallel_work,
+    write_backlog,
 )
 
 
@@ -877,3 +880,132 @@ def test_parallel_work_sorts_all_touch_conflicts_independent_of_tuple_order(
     ]
     assert forward == reordered
     assert [issue.message for issue in forward] == expected_messages
+
+
+def test_render_backlog_is_sorted_and_detects_stale_file(tmp_path: Path) -> None:
+    low = ProjectItem(
+        tmp_path / "SL-002-low.md",
+        "SL-002",
+        "Low",
+        "proposed",
+        "P2",
+        "quality",
+        "M2",
+        (),
+        (),
+        None,
+        "",
+    )
+    high = ProjectItem(
+        tmp_path / "SL-001-high.md",
+        "SL-001",
+        "High",
+        "ready",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/a.py",),
+        None,
+        ready_body(),
+    )
+    backlog = tmp_path / "backlog.md"
+    backlog.write_text("stale\n", encoding="utf-8")
+
+    rendered = render_backlog([low, high])
+    issues = validate_backlog(backlog, rendered)
+
+    assert rendered.index("SL-001") < rendered.index("SL-002")
+    assert "[SL-001](items/SL-001-high.md)" in rendered
+    assert [issue.message for issue in issues] == [
+        "backlog.md が課題ファイルと同期していません"
+    ]
+    assert backlog.read_text(encoding="utf-8") == "stale\n"
+
+    write_backlog(backlog, rendered)
+    assert backlog.read_text(encoding="utf-8") == rendered
+
+
+def test_render_backlog_is_deterministic_by_priority_milestone_and_id(
+    tmp_path: Path,
+) -> None:
+    items = [
+        ProjectItem(
+            tmp_path / "SL-003-third.md",
+            "SL-003",
+            "Third",
+            "proposed",
+            "P1",
+            "quality",
+            "M2",
+            (),
+            (),
+            None,
+            "",
+        ),
+        ProjectItem(
+            tmp_path / "SL-002-second.md",
+            "SL-002",
+            "Second",
+            "proposed",
+            "P1",
+            "quality",
+            "M1",
+            (),
+            (),
+            None,
+            "",
+        ),
+        ProjectItem(
+            tmp_path / "SL-001-first.md",
+            "SL-001",
+            "First",
+            "proposed",
+            "P0",
+            "quality",
+            "M4",
+            (),
+            (),
+            None,
+            "",
+        ),
+        ProjectItem(
+            tmp_path / "SL-004-fourth.md",
+            "SL-004",
+            "Fourth",
+            "proposed",
+            "P1",
+            "quality",
+            "M1",
+            (),
+            (),
+            None,
+            "",
+        ),
+    ]
+
+    forward = render_backlog(items)
+    reversed_input = render_backlog(list(reversed(items)))
+
+    assert forward == reversed_input
+    assert [forward.index(item_id) for item_id in ("SL-001", "SL-002", "SL-004", "SL-003")] == sorted(
+        forward.index(item_id) for item_id in ("SL-001", "SL-002", "SL-004", "SL-003")
+    )
+
+
+def test_write_backlog_preserves_existing_file_and_cleans_temporary_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backlog = tmp_path / "backlog.md"
+    backlog.write_text("existing\n", encoding="utf-8")
+
+    def fail_replace(source: Path, target: Path) -> Path:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        write_backlog(backlog, "replacement\n")
+
+    assert backlog.read_text(encoding="utf-8") == "existing\n"
+    assert list(tmp_path.glob(".backlog-*")) == []

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +23,7 @@ VALID_STATUS = {"proposed", "ready", "in_progress", "blocked", "done", "cancelle
 VALID_PRIORITY = {"P0", "P1", "P2", "P3"}
 VALID_TYPE = {"defect", "refactor", "enhancement", "quality"}
 VALID_MILESTONE = {"M1", "M2", "M3", "M4"}
+PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 ID_RE = re.compile(r"SL-\d{3}\Z")
 FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", re.S)
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})[^\r\n]*$")
@@ -241,6 +244,54 @@ def validate_milestones(
         for item in items
         if item.milestone not in milestones
     ]
+
+
+def render_backlog(items: list[ProjectItem]) -> str:
+    rows = [
+        "# SheetLens 改善 Backlog",
+        "",
+        "> このファイルは `scripts/check_project_state.py render` で生成します。手動編集しません。",
+        "",
+        "| ID | 優先度 | 状態 | マイルストーン | 課題 | 依存 | 担当 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    ordered = sorted(
+        items,
+        key=lambda item: (
+            PRIORITY_ORDER[item.priority],
+            item.milestone,
+            item.id,
+        ),
+    )
+    for item in ordered:
+        deps = ", ".join(item.depends_on) or "—"
+        owner = item.owner or "—"
+        rows.append(
+            f"| [{item.id}](items/{item.path.name}) | {item.priority} | {item.status} | "
+            f"{item.milestone} | {item.title} | {deps} | {owner} |"
+        )
+    return "\n".join(rows) + "\n"
+
+
+def validate_backlog(path: Path, expected: str) -> list[ProjectIssue]:
+    actual = path.read_text(encoding="utf-8") if path.exists() else ""
+    return (
+        []
+        if actual == expected
+        else [_issue(path, "backlog.md が課題ファイルと同期していません")]
+    )
+
+
+def write_backlog(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".backlog-", dir=path.parent, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        Path(temporary).replace(path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
 
 
 def dependency_closure(item_id: str, by_id: dict[str, ProjectItem]) -> set[str]:
