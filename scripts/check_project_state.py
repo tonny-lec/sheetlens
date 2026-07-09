@@ -272,7 +272,10 @@ def _graph_index(items: list[ProjectItem]) -> tuple[dict[str, ProjectItem], set[
 
 
 def _normalized_parts(value: str) -> tuple[str, ...]:
-    return tuple(part for part in Path(value).as_posix().strip("/").split("/") if part)
+    normalized = Path(value).as_posix().strip("/")
+    if normalized == ".":
+        return ()
+    return tuple(part for part in normalized.split("/") if part)
 
 
 def paths_conflict(left: str, right: str) -> bool:

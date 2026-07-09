@@ -8,6 +8,7 @@ from scripts.check_project_state import (
     load_items,
     load_milestones,
     parse_item,
+    paths_conflict,
     section_text,
     validate_items,
     validate_milestones,
@@ -816,3 +817,63 @@ def test_parallel_work_is_deterministic_and_excludes_duplicate_ids(
     reverse = validate_parallel_work([unique, duplicate_b, duplicate_a])
 
     assert forward == reverse == []
+
+
+@pytest.mark.parametrize("root", [".", "/"])
+def test_paths_conflict_treats_repository_root_as_parent(root: str) -> None:
+    assert paths_conflict(root, "src/a.py")
+    assert paths_conflict("src/a.py", root)
+
+
+def test_paths_conflict_compares_complete_path_components() -> None:
+    assert paths_conflict("src/a", "src/a/file.py")
+    assert not paths_conflict("src/a", "src/ab/file.py")
+
+
+def test_parallel_work_sorts_all_touch_conflicts_independent_of_tuple_order(
+    tmp_path: Path,
+) -> None:
+    first = project_item(
+        tmp_path,
+        "SL-001",
+        status="in_progress",
+        touches=("src/a/file.py", "src/a"),
+        owner="worker-a",
+        body=ready_body(),
+    )
+    second = project_item(
+        tmp_path,
+        "SL-002",
+        status="in_progress",
+        touches=("src/a/sub/b.py", "src/a/file.py"),
+        owner="worker-b",
+        body=ready_body(),
+    )
+    first_reordered = project_item(
+        tmp_path,
+        "SL-001",
+        status="in_progress",
+        touches=tuple(reversed(first.touches)),
+        owner="worker-a",
+        body=ready_body(),
+    )
+    second_reordered = project_item(
+        tmp_path,
+        "SL-002",
+        status="in_progress",
+        touches=tuple(reversed(second.touches)),
+        owner="worker-b",
+        body=ready_body(),
+    )
+
+    forward = validate_parallel_work([first, second])
+    reordered = validate_parallel_work([first_reordered, second_reordered])
+
+    expected_messages = [
+        "SL-001 と SL-002 の touches が競合しています: src/a <-> src/a/file.py",
+        "SL-001 と SL-002 の touches が競合しています: src/a <-> src/a/sub/b.py",
+        "SL-001 と SL-002 の touches が競合しています: "
+        "src/a/file.py <-> src/a/file.py",
+    ]
+    assert forward == reordered
+    assert [issue.message for issue in forward] == expected_messages
