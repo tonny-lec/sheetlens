@@ -271,6 +271,52 @@ def _graph_index(items: list[ProjectItem]) -> tuple[dict[str, ProjectItem], set[
     return by_id, duplicate_ids
 
 
+def _normalized_parts(value: str) -> tuple[str, ...]:
+    return tuple(part for part in Path(value).as_posix().strip("/").split("/") if part)
+
+
+def paths_conflict(left: str, right: str) -> bool:
+    left_parts = _normalized_parts(left)
+    right_parts = _normalized_parts(right)
+    shortest = min(len(left_parts), len(right_parts))
+    return left_parts[:shortest] == right_parts[:shortest]
+
+
+def validate_parallel_work(items: list[ProjectItem]) -> list[ProjectIssue]:
+    issues: list[ProjectIssue] = []
+    by_id, _ = _graph_index(items)
+    active = sorted(
+        (item for item in by_id.values() if item.status == "in_progress"),
+        key=lambda item: (item.id, item.path.as_posix()),
+    )
+    for index, left in enumerate(active):
+        for right in active[index + 1 :]:
+            if left.owner is not None and left.owner == right.owner:
+                issues.append(
+                    _issue(right.path, f"{left.id} と owner が重複しています: {right.owner}")
+                )
+            left_deps = dependency_closure(left.id, by_id)
+            right_deps = dependency_closure(right.id, by_id)
+            if right.id in left_deps or left.id in right_deps:
+                issues.append(
+                    _issue(
+                        right.path,
+                        f"{left.id} と {right.id} は依存関係があるため並行実行できません",
+                    )
+                )
+            for left_path in sorted(left.touches):
+                for right_path in sorted(right.touches):
+                    if paths_conflict(left_path, right_path):
+                        issues.append(
+                            _issue(
+                                right.path,
+                                f"{left.id} と {right.id} の touches が競合しています: "
+                                f"{left_path} <-> {right_path}",
+                            )
+                        )
+    return issues
+
+
 def _cycles(by_id: dict[str, ProjectItem]) -> list[list[str]]:
     visiting: list[str] = []
     visited: set[str] = set()

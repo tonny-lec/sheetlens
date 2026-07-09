@@ -11,6 +11,7 @@ from scripts.check_project_state import (
     section_text,
     validate_items,
     validate_milestones,
+    validate_parallel_work,
 )
 
 
@@ -675,3 +676,143 @@ def test_validate_items_reports_incomplete_dependency_for_active_item(
     messages = [issue.message for issue in validate_items([dependency, dependent])]
 
     assert "未完了の依存課題があります: SL-001" in messages
+
+
+def test_parallel_work_rejects_transitive_dependency_and_parent_path(
+    tmp_path: Path,
+) -> None:
+    first = ProjectItem(
+        tmp_path / "SL-001-a.md",
+        "SL-001",
+        "A",
+        "in_progress",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/sheetlens",),
+        "worker-a",
+        ready_body(),
+    )
+    middle = ProjectItem(
+        tmp_path / "SL-002-b.md",
+        "SL-002",
+        "B",
+        "done",
+        "P1",
+        "defect",
+        "M1",
+        ("SL-001",),
+        ("tests/b.py",),
+        None,
+        ready_body().replace("- [ ]", "- [x]") + "\ncommand: passed\n",
+    )
+    last = ProjectItem(
+        tmp_path / "SL-003-c.md",
+        "SL-003",
+        "C",
+        "in_progress",
+        "P1",
+        "defect",
+        "M1",
+        ("SL-002",),
+        ("src/sheetlens/reader/a.py",),
+        "worker-c",
+        ready_body(),
+    )
+
+    messages = [
+        issue.message for issue in validate_parallel_work([first, middle, last])
+    ]
+    reversed_messages = [
+        issue.message for issue in validate_parallel_work([last, middle, first])
+    ]
+
+    assert messages == reversed_messages
+    assert "SL-001 と SL-003 は依存関係があるため並行実行できません" in messages
+    assert (
+        "SL-001 と SL-003 の touches が競合しています: "
+        "src/sheetlens <-> src/sheetlens/reader/a.py"
+    ) in messages
+
+
+def test_parallel_work_rejects_duplicate_non_null_owner(tmp_path: Path) -> None:
+    first = ProjectItem(
+        tmp_path / "SL-001-a.md",
+        "SL-001",
+        "A",
+        "in_progress",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/a.py",),
+        "worker-a",
+        ready_body(),
+    )
+    second = ProjectItem(
+        tmp_path / "SL-002-b.md",
+        "SL-002",
+        "B",
+        "in_progress",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/b.py",),
+        "worker-a",
+        ready_body(),
+    )
+
+    messages = [issue.message for issue in validate_parallel_work([second, first])]
+
+    assert messages == ["SL-001 と owner が重複しています: worker-a"]
+
+
+def test_parallel_work_is_deterministic_and_excludes_duplicate_ids(
+    tmp_path: Path,
+) -> None:
+    duplicate_a = ProjectItem(
+        tmp_path / "SL-001-a.md",
+        "SL-001",
+        "A",
+        "in_progress",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/a.py",),
+        "worker-a",
+        ready_body(),
+    )
+    duplicate_b = ProjectItem(
+        tmp_path / "SL-001-b.md",
+        "SL-001",
+        "B",
+        "in_progress",
+        "P1",
+        "defect",
+        "M1",
+        ("SL-002",),
+        ("src/b.py",),
+        "worker-b",
+        ready_body(),
+    )
+    unique = ProjectItem(
+        tmp_path / "SL-002.md",
+        "SL-002",
+        "C",
+        "in_progress",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/c.py",),
+        "worker-c",
+        ready_body(),
+    )
+
+    forward = validate_parallel_work([duplicate_a, duplicate_b, unique])
+    reverse = validate_parallel_work([unique, duplicate_b, duplicate_a])
+
+    assert forward == reverse == []
