@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from sheetlens.annotations.schema import AnnotationTarget, SheetAnnotations
 from sheetlens.detectors.formula_patterns import FormulaPattern
 from sheetlens.detectors.questions import Question
@@ -110,6 +112,36 @@ def test_readme_warns_on_gaps():
                      sheets=[ir.Sheet(name="s")], extraction_gaps=["x の抽出に失敗"])
     md = render_readme(wb, {"s": []}, [], frozenset())
     assert "⚠" in md and "1 件" in md
+
+
+def test_generated_readme_documents_stable_question_ids():
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[ir.Sheet(name="s")],
+    )
+
+    md = render_readme(wb, {"s": []}, [], frozenset())
+
+    assert "`question-ids.json`" in md
+    assert "`q2-<rule>-<16hex>`" in md
+    assert "旧形式の `q-NNN`" in md
+    assert "alias は一度保存した対応先から変更しません" in md
+    assert "`annotations/*.yaml` を書き換えません" in md
+    assert "回答時点を証明するものではありません" in md
+
+
+def test_repository_readme_documents_stable_question_ids():
+    readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
+
+    assert "question-ids.json" in readme
+    assert "`q2-<rule>-<16hex>`" in readme
+    assert "旧形式の `q-NNN`" in readme
+    assert "alias は一度保存した対応先から変更しません" in readme
+    assert "`annotations/*.yaml` の質問 ID を書き換えません" in readme
+    assert "回答時点を証明するものではありません" in readme
+    assert "q2-input_region-<16hex>" in readme
+    assert "(q-003)" not in readme
 
 
 def test_questions_md_checkboxes():

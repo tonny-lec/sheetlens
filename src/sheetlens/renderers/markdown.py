@@ -181,6 +181,16 @@ def render_readme(
         "- `structure/vba/*.bas`: VBA ソース",
         "- `annotations/*.yaml`: 業務上の意味（人間の回答。手で編集してよい唯一の場所）",
         "- `questions.md`: 業務担当者に確認すべき質問リスト",
+        "- `question-ids.json`: 安定した質問 ID と旧 ID alias の履歴",
+        "",
+        "## 質問 ID と注釈",
+        "",
+        "- 現在の質問 ID は内容から決定的に生成する `q2-<rule>-<16hex>` 形式です。",
+        "- 旧形式の `q-NNN` は `question-ids.json` の alias で引き続き解決し、"
+        "alias は一度保存した対応先から変更しません。",
+        "- SheetLens は質問 ID を含む `annotations/*.yaml` を書き換えません。",
+        "- `legacy_source_sha256` は alias を作ったアップグレード前の抽出 snapshot の由来であり、"
+        "回答時点を証明するものではありません。",
         "",
         "## シート一覧",
         "",

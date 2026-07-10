@@ -90,8 +90,10 @@ def compile_cmd(project: Path) -> None:
 def check(project: Path) -> None:
     """孤立注釈・未回答質問・スキーマ違反を報告する。"""
     from sheetlens.annotations.schema import AnnotationError, find_orphans, load_annotations
+    from sheetlens.detectors.questions import QuestionIdentityError
     from sheetlens.model import ir
-    from sheetlens.pipeline import analyze, find_unwoven
+    from sheetlens.pipeline import analyze, find_unwoven, resolve_project_question_ids
+    from sheetlens.question_ids import QuestionCatalogError
 
     raw = project / "structure" / "raw.json"
     if not raw.exists():
@@ -103,10 +105,25 @@ def check(project: Path) -> None:
     except AnnotationError as e:
         typer.echo(f"注釈エラー: {e}")
         raise typer.Exit(1) from e
-    analysis = analyze(wb)
+    try:
+        analysis = analyze(wb)
+        question_state = resolve_project_question_ids(
+            project,
+            wb,
+            analysis,
+            anns,
+            persist=False,
+        )
+    except (QuestionCatalogError, QuestionIdentityError) as e:
+        typer.echo(f"質問 ID エラー: {e}")
+        raise typer.Exit(1) from e
     for o in find_orphans(wb, anns) + find_unwoven(wb, analysis, anns):
         typer.echo(f"警告（孤立注釈）: {o}")
+    _print_question_resolution(
+        question_state.resolution,
+        question_state.catalog.legacy_source_sha256,
+    )
     questions = analysis.questions
-    answered = {qid for a in anns for qid in a.questions_answered}
+    answered = question_state.resolution.answered_ids
     unanswered = sum(1 for q in questions if q.id not in answered)
     typer.echo(f"未回答質問: {unanswered} / {len(questions)}")

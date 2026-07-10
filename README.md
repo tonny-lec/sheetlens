@@ -44,6 +44,7 @@ uv run sheetlens check 見積管理.sheetlens
 ```
 見積管理.sheetlens/
 ├── manifest.json        # 元ファイルのハッシュ・シート間依存グラフ・extraction_gaps
+├── question-ids.json    # 安定した質問 ID と旧 ID alias の履歴
 ├── structure/           # 【構造層】extract の再実行で完全に再生成される
 │   ├── sheet-<シート名>.md   # LLM 向けビュー（レイアウトマップ・数式パターン・入力規則…）
 │   ├── vba/<モジュール名>    # VBA ソース
@@ -53,6 +54,11 @@ uv run sheetlens check 見積管理.sheetlens
 ├── questions.md         # 構造から自動生成した「人間に聞くべき質問リスト」
 └── README.md            # AI エージェント向けの入口（読み方・欠落警告）
 ```
+
+現在の質問 ID は、質問の内容から決定的に生成される `q2-<rule>-<16hex>` 形式です。
+旧形式の `q-NNN` は `question-ids.json` に保存された alias で引き続き解決し、alias は一度保存した対応先から変更しません。
+移行時も SheetLens は `annotations/*.yaml` の質問 ID を書き換えません。
+catalog の `legacy_source_sha256` は alias を作ったアップグレード前の抽出 snapshot の由来であり、回答時点を証明するものではありません。
 
 シート Markdown の例（抜粋）:
 
@@ -66,7 +72,7 @@ uv run sheetlens check 見積管理.sheetlens
 > 💬 業務上の意味: 選択肢の意味: 「通常」=標準納期を適用、「特急」=割増率を自動設定
 
 ## 未確認事項
-> ❓ 未確認 (q-003): [A3:B8] 範囲 A3:B8 のデータは誰が・いつ・何を見て入力しますか？
+> ❓ 未確認 (q2-input_region-<16hex>): [A3:B8] 範囲 A3:B8 のデータは誰が・いつ・何を見て入力しますか？
 ```
 
 同一パターンの数式は「範囲 + パターン + 例外」に集約し、逸脱セルを強調します
