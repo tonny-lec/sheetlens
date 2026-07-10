@@ -13,10 +13,15 @@ def extract(
     out: Path | None = typer.Option(None, "-o", "--out"),
 ) -> None:
     """xlsx/xlsm から構造層と questions.md を生成する。"""
+    from sheetlens.detectors.questions import QuestionIdentityError
     from sheetlens.pipeline import ExistingStructureError, extract_workbook
+    from sheetlens.question_ids import QuestionCatalogError
 
     try:
         proj = extract_workbook(file, out)
+    except (QuestionCatalogError, QuestionIdentityError) as e:
+        typer.echo(f"質問 ID エラー: {e}")
+        raise typer.Exit(1) from e
     except ExistingStructureError as e:
         typer.echo(str(e))
         raise typer.Exit(1) from e

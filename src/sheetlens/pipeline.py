@@ -6,9 +6,21 @@ from pydantic import BaseModel
 
 from sheetlens.annotations.schema import SheetAnnotations, find_orphans, load_annotations, split_ranges
 from sheetlens.detectors.formula_patterns import FormulaPattern, aggregate_formulas
-from sheetlens.detectors.questions import Question, generate_questions
+from sheetlens.detectors.questions import Question, QuestionSet, generate_question_set
 from sheetlens.detectors.regions import Region, detect_regions
 from sheetlens.model import ir
+from sheetlens.question_ids import (
+    AnswerResolution,
+    QuestionIdCatalog,
+    build_catalog,
+    is_legacy_question_id,
+    legacy_snapshot_matches,
+    load_catalog,
+    record_unresolved_legacy_ids,
+    resolve_answered_ids,
+    save_catalog,
+    validate_catalog_questions,
+)
 from sheetlens.reader.workbook import read_workbook
 from sheetlens.renderers.machine import build_manifest, sheet_dependencies
 from sheetlens.renderers.markdown import render_questions_md, render_readme, render_sheet_md
@@ -17,7 +29,17 @@ from sheetlens.renderers.markdown import render_questions_md, render_readme, ren
 class Analysis(BaseModel):
     patterns: dict[str, list[FormulaPattern]]
     regions: dict[str, list[Region]]
-    questions: list[Question]
+    question_set: QuestionSet
+
+    @property
+    def questions(self) -> list[Question]:
+        return self.question_set.questions
+
+
+class ProjectQuestionState(BaseModel):
+    catalog: QuestionIdCatalog
+    resolution: AnswerResolution
+    bootstrapped_catalog: bool = False
 
 
 class ExistingStructureError(Exception):
@@ -28,7 +50,79 @@ def analyze(wb: ir.Workbook) -> Analysis:
     patterns = {s.name: aggregate_formulas(s) for s in wb.sheets}
     regions = {s.name: detect_regions(s) for s in wb.sheets}
     return Analysis(
-        patterns=patterns, regions=regions, questions=generate_questions(wb, regions, patterns)
+        patterns=patterns,
+        regions=regions,
+        question_set=generate_question_set(wb, regions, patterns),
+    )
+
+
+def bootstrap_legacy_catalog(
+    proj: Path,
+    wb: ir.Workbook,
+    analysis: Analysis,
+) -> QuestionIdCatalog:
+    expected = render_questions_md(analysis.question_set.legacy_questions, set())
+    questions_path = proj / "questions.md"
+    legacy_aliases: dict[str, str] = {}
+    if questions_path.exists():
+        existing = questions_path.read_text(encoding="utf-8")
+        if legacy_snapshot_matches(existing, expected):
+            legacy_aliases = analysis.question_set.legacy_aliases
+    return build_catalog(
+        wb.sha256,
+        analysis.question_set,
+        legacy_aliases=legacy_aliases,
+        legacy_source_sha256=wb.sha256 if legacy_aliases else None,
+    )
+
+
+def _load_or_bootstrap_question_catalog(
+    proj: Path,
+    wb: ir.Workbook,
+    analysis: Analysis,
+) -> tuple[QuestionIdCatalog, bool]:
+    catalog = load_catalog(
+        proj / "question-ids.json",
+        expected_source_sha256=wb.sha256,
+    )
+    bootstrapped_catalog = catalog is None
+    if catalog is None:
+        catalog = bootstrap_legacy_catalog(proj, wb, analysis)
+    validate_catalog_questions(catalog, analysis.question_set)
+    return catalog, bootstrapped_catalog
+
+
+def resolve_project_question_ids(
+    proj: Path,
+    wb: ir.Workbook,
+    analysis: Analysis,
+    anns: list[SheetAnnotations],
+    *,
+    persist: bool,
+) -> ProjectQuestionState:
+    catalog_path = proj / "question-ids.json"
+    catalog, bootstrapped_catalog = _load_or_bootstrap_question_catalog(
+        proj,
+        wb,
+        analysis,
+    )
+    annotation_ids = [qid for ann in anns for qid in ann.questions_answered]
+    resolution = resolve_answered_ids(annotation_ids, catalog)
+    catalog = record_unresolved_legacy_ids(
+        catalog,
+        (
+            diagnostic.question_id
+            for diagnostic in resolution.diagnostics
+            if diagnostic.kind == "unresolved"
+            and is_legacy_question_id(diagnostic.question_id)
+        ),
+    )
+    if persist:
+        save_catalog(catalog_path, catalog)
+    return ProjectQuestionState(
+        catalog=catalog,
+        resolution=resolution,
+        bootstrapped_catalog=bootstrapped_catalog,
     )
 
 
@@ -96,14 +190,32 @@ def extract_workbook(src: Path, out: Path | None = None) -> Path:
     wb = read_workbook(src)
     proj = out or src.with_name(src.stem + ".sheetlens")
     structure_dir = proj / "structure"
+    analysis = analyze(wb)
+
     if structure_dir.exists():
-        if (structure_dir / "raw.json").exists():
-            shutil.rmtree(structure_dir)  # SheetLens 出力なので再生成のため削除
-        else:
+        raw_path = structure_dir / "raw.json"
+        if not raw_path.exists():
             raise ExistingStructureError(
                 f"{structure_dir} は SheetLens の出力ではありません（raw.json なし）。"
                 "誤削除を防ぐため中断しました。別の出力先を指定してください。"
             )
+        old_wb = ir.Workbook.model_validate_json(raw_path.read_text(encoding="utf-8"))
+        old_analysis = analyze(old_wb)
+        old_catalog, _ = _load_or_bootstrap_question_catalog(
+            proj,
+            old_wb,
+            old_analysis,
+        )
+        catalog = build_catalog(
+            wb.sha256,
+            analysis.question_set,
+            previous=old_catalog,
+        )
+        validate_catalog_questions(catalog, analysis.question_set)
+        shutil.rmtree(structure_dir)  # SheetLens 出力なので再生成のため削除
+    else:
+        catalog = build_catalog(wb.sha256, analysis.question_set)
+
     structure_dir.mkdir(parents=True)
     (proj / "annotations").mkdir(exist_ok=True)  # 既存の中身には触れない
     (structure_dir / "raw.json").write_text(wb.model_dump_json(indent=2), encoding="utf-8")
@@ -119,7 +231,8 @@ def extract_workbook(src: Path, out: Path | None = None) -> Path:
                 name += ".bas"
             (vba_dir / name).write_text(m.code, encoding="utf-8")
     # extract は注釈なしのビューを書く（織り込みは compile の仕事）
-    _write_views(proj, wb, analyze(wb), [], set())
+    _write_views(proj, wb, analysis, [], set())
+    save_catalog(proj / "question-ids.json", catalog)
     return proj
 
 
