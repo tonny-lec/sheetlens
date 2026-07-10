@@ -42,6 +42,11 @@ class ProjectQuestionState(BaseModel):
     bootstrapped_catalog: bool = False
 
 
+class CompileResult(BaseModel):
+    warnings: list[str]
+    question_state: ProjectQuestionState
+
+
 class ExistingStructureError(Exception):
     pass
 
@@ -242,12 +247,27 @@ def extract_workbook(src: Path, out: Path | None = None) -> Path:
     return proj
 
 
-def compile_project(proj: Path) -> list[str]:
+def compile_project(proj: Path) -> CompileResult:
     wb = ir.Workbook.model_validate_json(
         (proj / "structure" / "raw.json").read_text(encoding="utf-8")
     )
     anns = load_annotations(proj / "annotations")
-    answered = {qid for a in anns for qid in a.questions_answered}
     analysis = analyze(wb)
-    _write_views(proj, wb, analysis, anns, answered)
-    return find_orphans(wb, anns) + find_unwoven(wb, analysis, anns)
+    question_state = resolve_project_question_ids(
+        proj,
+        wb,
+        analysis,
+        anns,
+        persist=True,
+    )
+    _write_views(
+        proj,
+        wb,
+        analysis,
+        anns,
+        question_state.resolution.answered_ids,
+    )
+    return CompileResult(
+        warnings=find_orphans(wb, anns) + find_unwoven(wb, analysis, anns),
+        question_state=question_state,
+    )

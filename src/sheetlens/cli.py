@@ -1,10 +1,36 @@
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zipfile import BadZipFile
 
 from openpyxl.utils.exceptions import InvalidFileException
 import typer
 
+if TYPE_CHECKING:
+    from sheetlens.question_ids import AnswerResolution
+
 app = typer.Typer(help="業務 Excel を AI が誤読しない中間表現に変換する", no_args_is_help=True)
+
+
+def _print_question_resolution(
+    resolution: "AnswerResolution",
+    legacy_source_sha256: str | None,
+) -> None:
+    for diagnostic in resolution.diagnostics:
+        if diagnostic.kind == "changed":
+            typer.echo(
+                f"警告（質問ID変更）: {diagnostic.question_id} -> {diagnostic.current_id}"
+            )
+        elif diagnostic.kind == "deleted":
+            typer.echo(f"警告（質問ID削除）: {diagnostic.question_id}")
+        else:
+            typer.echo(f"警告（質問ID未解決）: {diagnostic.question_id}")
+
+    if resolution.legacy_ids:
+        typer.echo(f"旧質問 ID を自動解決: {len(resolution.legacy_ids)} 件")
+        typer.echo(
+            f"legacy_source_sha256: {legacy_source_sha256} "
+            "（旧 alias の由来であり、回答時世代そのものを証明しません）"
+        )
 
 
 @app.command()
@@ -35,19 +61,28 @@ def extract(
 def compile_cmd(project: Path) -> None:
     """構造層 + 注釈を統合した Markdown を再生成する。"""
     from sheetlens.annotations.schema import AnnotationError
+    from sheetlens.detectors.questions import QuestionIdentityError
     from sheetlens.pipeline import compile_project
+    from sheetlens.question_ids import QuestionCatalogError
 
     raw = project / "structure" / "raw.json"
     if not raw.exists():
         typer.echo(f"エラー: {project} は sheetlens プロジェクトではありません（structure/raw.json がありません）")
         raise typer.Exit(1)
     try:
-        orphans = compile_project(project)
+        result = compile_project(project)
     except AnnotationError as e:
         typer.echo(f"注釈エラー: {e}")
         raise typer.Exit(1) from e
-    for o in orphans:
-        typer.echo(f"警告（孤立注釈）: {o}")
+    except (QuestionCatalogError, QuestionIdentityError) as e:
+        typer.echo(f"質問 ID エラー: {e}")
+        raise typer.Exit(1) from e
+    for warning in result.warnings:
+        typer.echo(f"警告（孤立注釈）: {warning}")
+    _print_question_resolution(
+        result.question_state.resolution,
+        result.question_state.catalog.legacy_source_sha256,
+    )
     typer.echo(f"再生成しました: {project}")
 
 
