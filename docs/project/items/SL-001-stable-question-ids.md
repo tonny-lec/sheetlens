@@ -18,6 +18,7 @@ touches:
   - tests/test_extract_e2e.py
   - tests/test_compile_e2e.py
   - tests/test_check_e2e.py
+  - tests/test_markdown.py
 owner: codex
 ---
 
@@ -48,7 +49,9 @@ owner: codex
 
 設計は
 [`2026-07-10-stable-question-ids-design.md`](../../superpowers/specs/2026-07-10-stable-question-ids-design.md)
-に記録した。設計承認後、`docs/superpowers/plans/` に実装計画を作成してリンクする。
+に記録した。実装は
+[`2026-07-10-stable-question-ids.md`](../../superpowers/plans/2026-07-10-stable-question-ids.md)
+に従う。
 
 ## 完了証拠
 
