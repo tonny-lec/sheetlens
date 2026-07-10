@@ -1,7 +1,7 @@
 ---
 id: SL-005
 title: 名前定義プルダウンの解決
-status: ready
+status: in_progress
 priority: P1
 type: defect
 milestone: M2
@@ -10,7 +10,7 @@ touches:
   - src/sheetlens/reader/features.py
   - src/sheetlens/reader/workbook.py
   - tests/test_features.py
-owner: null
+owner: codex
 ---
 
 # SL-005 名前定義プルダウンの解決
@@ -35,7 +35,9 @@ owner: null
 
 ## 実装計画
 
-着手時に `docs/superpowers/plans/` へ実装計画を作成し、ここからリンクする。
+設計は
+[`2026-07-11-defined-name-validations-design.md`](../../superpowers/specs/2026-07-11-defined-name-validations-design.md)
+に記録した。実装計画は `docs/superpowers/plans/` へ作成し、ここからリンクする。
 
 ## 完了証拠
 
