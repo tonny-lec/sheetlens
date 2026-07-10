@@ -85,6 +85,8 @@ def _parse_static_range(source: str, default_sheet: str | None) -> _RangeTarget 
 
 
 def _read_range(wb_v, target: _RangeTarget) -> _ListResolution:
+    if any(marker in target.sheet for marker in (":", "[", "]")):
+        return _ListResolution([], "unsupported_reference")
     if target.sheet not in wb_v.sheetnames:
         return _ListResolution([], "sheet_not_found")
     ws = wb_v[target.sheet]

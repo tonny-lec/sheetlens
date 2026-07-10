@@ -172,6 +172,39 @@ def test_quoted_sheet_name_with_comma_resolves_direct_and_defined_ranges(make_xl
     assert workbook.extraction_gaps == []
 
 
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "Sheet1:Sheet2!$A$1",
+        "[Book.xlsx]Sheet1!$A$1",
+    ],
+)
+def test_unsupported_3d_and_external_references_add_gaps_after_round_trip(
+    make_xlsx, reference
+):
+    def build(wb):
+        ws = wb.active
+        ws.title = "入力"
+        wb.create_sheet("Sheet1")
+        wb.create_sheet("Sheet2")
+        wb.defined_names.add(
+            DefinedName("UnsupportedChoices", attr_text=reference)
+        )
+        _add_list_validation(ws, "B2", f"={reference}")
+        _add_list_validation(ws, "C2", "=UnsupportedChoices")
+
+    workbook = read_workbook(make_xlsx(build))
+    rules = _rules_by_range(workbook)
+    assert rules["B2"].choices == []
+    assert rules["C2"].choices == []
+    assert workbook.extraction_gaps == [
+        "入力: 入力規則 B2 の選択肢を解決できません "
+        f"(formula1={'=' + reference!r}; reason=unsupported_reference)",
+        "入力: 入力規則 C2 の選択肢を解決できません "
+        "(formula1='=UnsupportedChoices'; reason=unsupported_reference)",
+    ]
+
+
 def test_trailing_text_in_qualified_range_adds_invalid_range_gaps(make_xlsx):
     def build(wb):
         ws = wb.active
@@ -192,6 +225,28 @@ def test_trailing_text_in_qualified_range_adds_invalid_range_gaps(make_xlsx):
         '(formula1="=\'入力\'!$A$1:$A$2garbage"; reason=invalid_range)',
         "入力: 入力規則 C2 の選択肢を解決できません "
         "(formula1='=TrailingGarbage'; reason=invalid_range)",
+    ]
+
+
+def test_unresolved_validation_does_not_discard_valid_rule_on_same_sheet(make_xlsx):
+    def build(wb):
+        ws = wb.active
+        ws.title = "入力"
+        master = wb.create_sheet("マスタ")
+        master["A1"] = "one"
+        master["A2"] = "two"
+        _add_list_validation(ws, "B2", "='マスタ'!$A$1:$A$2")
+        _add_list_validation(ws, "C2", "=MissingChoices")
+
+    workbook = read_workbook(make_xlsx(build))
+    sheet = workbook.sheets[0]
+    rules = _rules_by_range(workbook)
+    assert len(sheet.validations) == 2
+    assert rules["B2"].choices == ["one", "two"]
+    assert rules["C2"].choices == []
+    assert workbook.extraction_gaps == [
+        "入力: 入力規則 C2 の選択肢を解決できません "
+        "(formula1='=MissingChoices'; reason=name_not_found)"
     ]
 
 
