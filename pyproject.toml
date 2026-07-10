@@ -26,6 +26,7 @@ packages = ["src/sheetlens"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 filterwarnings = [
     # oletools が import 時に出す pyparsing の非推奨警告（第三者ライブラリ由来）のみ抑制
     "ignore:::oletools\\.olevba",

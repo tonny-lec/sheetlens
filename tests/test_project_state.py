@@ -181,6 +181,88 @@ def test_load_items_reports_mixed_unknown_keys_and_continues(tmp_path: Path) -> 
     ]
 
 
+@pytest.mark.parametrize(
+    ("duplicate", "key_repr"),
+    [
+        ("status: ready", "'status'"),
+        ("unknown: first\nunknown: second", "'unknown'"),
+        ("1: first\n1: second", "1"),
+    ],
+)
+def test_parse_item_rejects_duplicate_yaml_mapping_keys(
+    tmp_path: Path,
+    duplicate: str,
+    key_repr: str,
+) -> None:
+    path = tmp_path / "SL-001-duplicate-key.md"
+    write_item(path, valid_front() + "\n" + duplicate)
+
+    item, issues = parse_item(path)
+
+    assert item is None
+    assert issues == [
+        project_state.ProjectIssue(
+            path,
+            f"YAML front matter が不正です: mapping キーが重複しています: {key_repr}",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "touch",
+    [".", "src/a.py", "docs/project/items", "report:v2.md", "docs/spec:v2.md"],
+)
+def test_parse_item_accepts_canonical_repository_relative_touches(
+    tmp_path: Path,
+    touch: str,
+) -> None:
+    path = tmp_path / "SL-001-canonical-touch.md"
+    front = valid_front().replace("touches: []", f"touches: [{touch!r}]")
+    write_item(path, front)
+
+    item, issues = parse_item(path)
+
+    assert issues == []
+    assert item is not None
+    assert item.touches == (touch,)
+
+
+@pytest.mark.parametrize(
+    "touch",
+    [
+        "",
+        "/src/a.py",
+        "C:/src/a.py",
+        "C:src/a.py",
+        "c:/src/a.py",
+        "c:src/a.py",
+        r"src\a.py",
+        "..",
+        "../src/a.py",
+        "src/../a.py",
+        "./src/a.py",
+        "src/./a.py",
+        "src//a.py",
+        "src/a.py/",
+    ],
+)
+def test_parse_item_rejects_noncanonical_touches(
+    tmp_path: Path,
+    touch: str,
+) -> None:
+    path = tmp_path / "SL-001-noncanonical-touch.md"
+    yaml_touch = "'" + touch.replace("'", "''") + "'"
+    front = valid_front().replace("touches: []", f"touches: [{yaml_touch}]")
+    write_item(path, front)
+
+    item, issues = parse_item(path)
+
+    assert item is None
+    assert issues == [
+        project_state.ProjectIssue(path, f"touches の path が不正です: {touch!r}")
+    ]
+
+
 def test_section_text_returns_trimmed_named_section(tmp_path: Path) -> None:
     item = project_item(
         tmp_path,
@@ -336,6 +418,124 @@ def test_validate_items_reports_cycle_and_invalid_done(tmp_path: Path) -> None:
     assert "done では完了証拠を記録してください" in messages
 
 
+@pytest.mark.parametrize("status", ["ready", "in_progress", "blocked"])
+@pytest.mark.parametrize("marker", ["-", "*", "+", "1.", "1)"])
+@pytest.mark.parametrize("checkbox", ["[ ]", "[x]"])
+def test_validate_items_accepts_nonempty_checkbox_for_active_statuses(
+    tmp_path: Path,
+    status: str,
+    marker: str,
+    checkbox: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"{marker} {checkbox} 挙動を修正する",
+    )
+    item = project_item(
+        tmp_path,
+        status=status,
+        touches=("src/a.py",),
+        owner="worker-a" if status == "in_progress" else None,
+        body=body,
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert f"{status} では受け入れ条件をチェックボックスで記載してください" not in messages
+
+
+@pytest.mark.parametrize("status", ["ready", "in_progress", "blocked"])
+@pytest.mark.parametrize("marker", ["-", "*", "+", "1.", "1)"])
+@pytest.mark.parametrize("variant", ["plain", "mixed", "empty_item", "empty_checkbox"])
+def test_validate_items_rejects_non_checkbox_list_items_for_active_statuses(
+    tmp_path: Path,
+    status: str,
+    marker: str,
+    variant: str,
+) -> None:
+    criteria = {
+        "plain": f"{marker} 挙動を修正する",
+        "mixed": f"- [ ] 挙動を修正する\n{marker} 回帰テストを実行する",
+        "empty_item": marker,
+        "empty_checkbox": f"{marker} [ ]",
+    }[variant]
+    body = ready_body().replace("- [ ] 挙動を修正する", criteria)
+    item = project_item(
+        tmp_path,
+        status=status,
+        touches=("src/a.py",),
+        owner="worker-a" if status == "in_progress" else None,
+        body=body,
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert f"{status} では受け入れ条件をチェックボックスで記載してください" in messages
+
+
+@pytest.mark.parametrize("status", ["ready", "in_progress", "blocked"])
+def test_validate_items_rejects_plain_text_only_acceptance_criteria(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    body = ready_body().replace("- [ ] 挙動を修正する", "挙動を修正する")
+    item = project_item(
+        tmp_path,
+        status=status,
+        touches=("src/a.py",),
+        owner="worker-a" if status == "in_progress" else None,
+        body=body,
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert f"{status} では受け入れ条件をチェックボックスで記載してください" in messages
+
+
+@pytest.mark.parametrize("status", ["ready", "in_progress", "blocked"])
+@pytest.mark.parametrize(
+    ("criteria", "expected"),
+    [
+        ("", "{status} では 受け入れ条件 を記載してください"),
+        (
+            "``` markdown\n- [x] example\n```",
+            "{status} では 受け入れ条件 を記載してください",
+        ),
+    ],
+)
+def test_validate_items_rejects_empty_or_fenced_only_acceptance_criteria(
+    tmp_path: Path,
+    status: str,
+    criteria: str,
+    expected: str,
+) -> None:
+    body = ready_body().replace("- [ ] 挙動を修正する", criteria)
+    item = project_item(
+        tmp_path,
+        status=status,
+        touches=("src/a.py",),
+        owner="worker-a" if status == "in_progress" else None,
+        body=body,
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert expected.format(status=status) in messages
+
+
+@pytest.mark.parametrize("criteria", ["", "挙動を修正する", "- 挙動を修正する"])
+def test_validate_items_allows_incomplete_acceptance_criteria_for_proposed(
+    tmp_path: Path,
+    criteria: str,
+) -> None:
+    body = ready_body().replace("- [ ] 挙動を修正する", criteria)
+    item = project_item(tmp_path, status="proposed", body=body)
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert not any("受け入れ条件" in message for message in messages)
+
+
 def test_validate_items_rejects_plain_bullet_in_done_acceptance_criteria(
     tmp_path: Path,
 ) -> None:
@@ -374,6 +574,27 @@ def test_validate_items_accepts_checked_done_criterion_for_each_list_marker(
     messages = [issue.message for issue in validate_items([item])]
 
     assert "done では受け入れ条件をすべてチェックしてください" not in messages
+
+
+@pytest.mark.parametrize("marker", ["-", "*", "+", "1.", "1)"])
+def test_validate_items_rejects_unchecked_done_criterion_for_each_list_marker(
+    tmp_path: Path,
+    marker: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"{marker} [ ] 挙動を修正する",
+    )
+    item = project_item(
+        tmp_path,
+        status="done",
+        touches=("src/a.py",),
+        body=body + "pytest: passed\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert "done では受け入れ条件をすべてチェックしてください" in messages
 
 
 @pytest.mark.parametrize("plain_marker", ["-", "*", "+", "1.", "1)"])
@@ -847,6 +1068,21 @@ def test_paths_conflict_treats_repository_root_as_parent(root: str) -> None:
 def test_paths_conflict_compares_complete_path_components() -> None:
     assert paths_conflict("src/a", "src/a/file.py")
     assert not paths_conflict("src/a", "src/ab/file.py")
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        ("src/SheetLens/Reader.py", "SRC/sheetlens/reader.py"),
+        ("src/SheetLens", "SRC/sheetlens/reader.py"),
+    ],
+)
+def test_paths_conflict_treats_case_only_windows_aliases_as_conflicts(
+    left: str,
+    right: str,
+) -> None:
+    assert paths_conflict(left, right)
+    assert paths_conflict(right, left)
 
 
 def test_parallel_work_sorts_all_touch_conflicts_independent_of_tuple_order(

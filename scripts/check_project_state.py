@@ -7,7 +7,7 @@ import re
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import yaml
 
@@ -37,6 +37,36 @@ LIST_ITEM_RE = re.compile(
 )
 TASK_CHECKBOX_RE = re.compile(r"^\[([ xX])\][ \t]+\S.*$")
 MILESTONE_RE = re.compile(r"^## (M[1-4])(?:\s|$)", re.M)
+
+
+class _DuplicateMappingKeyError(yaml.YAMLError):
+    pass
+
+
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_unique_mapping(
+    loader: _UniqueKeySafeLoader,
+    node: yaml.MappingNode,
+    deep: bool = False,
+) -> dict[object, object]:
+    mapping: dict[object, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise _DuplicateMappingKeyError(
+                f"mapping キーが重複しています: {key!r}"
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
 
 
 @dataclass(frozen=True)
@@ -70,13 +100,26 @@ def _front_matter_key_sort_key(key: object) -> tuple[int, str, str]:
     return 1, type(key).__name__, repr(key)
 
 
+def _touch_path_is_canonical(value: str) -> bool:
+    if value == ".":
+        return True
+    if (
+        not value
+        or value.startswith("/")
+        or "\\" in value
+        or PureWindowsPath(value).drive
+    ):
+        return False
+    return all(part not in {"", ".", ".."} for part in value.split("/"))
+
+
 def parse_item(path: Path) -> tuple[ProjectItem | None, list[ProjectIssue]]:
     text = path.read_text(encoding="utf-8")
     match = FRONT_RE.match(text)
     if not match:
         return None, [_issue(path, "YAML front matter を解析できません")]
     try:
-        raw = yaml.safe_load(match.group(1))
+        raw = yaml.load(match.group(1), Loader=_UniqueKeySafeLoader)
     except yaml.YAMLError as exc:
         return None, [_issue(path, f"YAML front matter が不正です: {exc}")]
     if not isinstance(raw, dict):
@@ -117,6 +160,13 @@ def parse_item(path: Path) -> tuple[ProjectItem | None, list[ProjectIssue]]:
             or not all(isinstance(value, str) for value in raw[key])
         ):
             issues.append(_issue(path, f"{key} は文字列の配列で指定してください"))
+    touches = raw.get("touches")
+    if isinstance(touches, list) and all(isinstance(value, str) for value in touches):
+        issues.extend(
+            _issue(path, f"touches の path が不正です: {value!r}")
+            for value in touches
+            if not _touch_path_is_canonical(value)
+        )
     if raw.get("owner") is not None and not isinstance(raw.get("owner"), str):
         issues.append(_issue(path, "owner は文字列または null で指定してください"))
     if isinstance(raw.get("status"), str) and raw["status"] not in VALID_STATUS:
@@ -220,15 +270,22 @@ def _validation_section_text(item: ProjectItem, name: str) -> str:
     return _mask_fenced_blocks(section_text(item, name)).strip()
 
 
-def _acceptance_criteria_complete(text: str) -> bool:
+def _acceptance_criteria_structure_valid(text: str) -> bool:
     criteria = LIST_ITEM_RE.findall(text)
     if not criteria:
         return False
-    for criterion in criteria:
-        checkbox = TASK_CHECKBOX_RE.fullmatch(criterion.strip())
-        if checkbox is None or checkbox.group(1) == " ":
-            return False
-    return True
+    return all(
+        TASK_CHECKBOX_RE.fullmatch(criterion.strip()) is not None
+        for criterion in criteria
+    )
+
+
+def _acceptance_criteria_all_checked(text: str) -> bool:
+    checkboxes = [
+        TASK_CHECKBOX_RE.fullmatch(criterion.strip())
+        for criterion in LIST_ITEM_RE.findall(text)
+    ]
+    return all(checkbox is not None and checkbox.group(1) != " " for checkbox in checkboxes)
 
 
 def load_milestones(path: Path) -> tuple[set[str], list[ProjectIssue]]:
@@ -354,7 +411,7 @@ def _normalized_parts(value: str) -> tuple[str, ...]:
     normalized = Path(value).as_posix().strip("/")
     if normalized == ".":
         return ()
-    return tuple(part for part in normalized.split("/") if part)
+    return tuple(part.casefold() for part in normalized.split("/") if part)
 
 
 def paths_conflict(left: str, right: str) -> bool:
@@ -467,6 +524,18 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
                     issues.append(_issue(item.path, f"{item.status} では {name} を記載してください"))
             if not item.touches:
                 issues.append(_issue(item.path, f"{item.status} では touches が必須です"))
+        acceptance = _validation_section_text(item, "受け入れ条件")
+        if (
+            item.status in {"ready", "in_progress", "blocked"}
+            and acceptance
+            and not _acceptance_criteria_structure_valid(acceptance)
+        ):
+            issues.append(
+                _issue(
+                    item.path,
+                    f"{item.status} では受け入れ条件をチェックボックスで記載してください",
+                )
+            )
         if item.status == "in_progress" and not item.owner:
             issues.append(_issue(item.path, "status=in_progress では owner が必須です"))
         if item.status != "in_progress" and item.owner is not None:
@@ -487,8 +556,10 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
             for dep in incomplete:
                 issues.append(_issue(item.path, f"未完了の依存課題があります: {dep}"))
         if item.status == "done":
-            acceptance = _validation_section_text(item, "受け入れ条件")
-            if not _acceptance_criteria_complete(acceptance):
+            if (
+                not _acceptance_criteria_structure_valid(acceptance)
+                or not _acceptance_criteria_all_checked(acceptance)
+            ):
                 issues.append(
                     _issue(item.path, "done では受け入れ条件をすべてチェックしてください")
                 )
