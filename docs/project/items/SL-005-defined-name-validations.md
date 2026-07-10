@@ -37,7 +37,9 @@ owner: codex
 
 設計は
 [`2026-07-11-defined-name-validations-design.md`](../../superpowers/specs/2026-07-11-defined-name-validations-design.md)
-に記録した。実装計画は `docs/superpowers/plans/` へ作成し、ここからリンクする。
+に記録した。実装は
+[`2026-07-11-defined-name-validations.md`](../../superpowers/plans/2026-07-11-defined-name-validations.md)
+に従う。
 
 ## 完了証拠
 
