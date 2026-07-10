@@ -1405,6 +1405,22 @@ def test_check_reports_stale_backlog_and_render_synchronizes_it(
     assert capsys.readouterr().out == ""
 
 
+def test_empty_project_commands_are_deterministic(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "docs" / "project"
+    (project / "items").mkdir(parents=True)
+    (project / "roadmap.md").write_text(
+        "## M1 A\n## M2 B\n## M3 C\n## M4 D\n", encoding="utf-8"
+    )
+    write_backlog(project / "backlog.md", render_backlog([]))
+
+    assert run("check", tmp_path) == 0
+    assert run("render", tmp_path) == 0
+    assert run("next", tmp_path) == 0
+    assert "SL-" not in capsys.readouterr().out
+
+
 def test_render_does_not_mutate_backlog_when_state_is_invalid(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

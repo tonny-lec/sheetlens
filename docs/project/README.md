@@ -1,0 +1,106 @@
+# SheetLens 改善プロジェクト
+
+## 正本
+
+`items/*.md` が課題状態の唯一の正本です。`backlog.md` は生成物なので手動編集しません。
+
+## コマンド
+
+```bash
+uv run python scripts/check_project_state.py check
+uv run python scripts/check_project_state.py render
+uv run python scripts/check_project_state.py next
+```
+
+- `check`: 課題、依存関係、並行条件、backlog 同期を検証します。
+- `render`: 検証成功後に backlog をアトミックに再生成します。
+- `next`: 依存を満たした ready 課題と、現在の作業との競合を表示します。
+
+`next` は候補表示前に全状態を検証します。エラーが 1 件でもあれば終了コード 1 を返し、
+候補行や「並行可能」は表示しません。
+
+終了コードは成功が 0、管理状態の不正が 1、CLI の使用方法の誤りが 2 です。
+
+## 状態遷移
+
+```text
+proposed -> ready -> in_progress -> done
+                         |
+                         v
+                      blocked
+
+proposed / ready / blocked -> cancelled
+done -> ready
+```
+
+- `proposed`: 根本原因、変更範囲、受け入れ条件のいずれかが未確定
+- `ready`: 根拠、受け入れ条件、対象外、touches が明確で依存課題が完了
+- `in_progress`: owner が割り当てられて作業中
+- `blocked`: 理由、解除条件、次に確認することを記録して待機中
+- `done`: 受け入れ条件と検証をすべて満たした
+- `cancelled`: 中止理由を記録して終了
+
+## 並行作業
+
+複数課題を同時に進められるのは、直接・推移的な依存がなく、touches が競合せず、
+owner が重複しない場合だけです。親ワーカーだけが並行可否と状態を管理します。
+
+## 課題ファイル形式
+
+```yaml
+---
+id: SL-001
+title: 質問IDを再抽出後も安定させる
+status: proposed
+priority: P1
+type: defect
+milestone: M1
+depends_on: []
+touches: []
+owner: null
+---
+```
+
+本文には `背景と根本原因`、`根拠`、`受け入れ条件`、`対象外`、`実装計画`、
+`完了証拠` の各セクションを置きます。受け入れ条件は Markdown チェックボックスで
+記述します。backtick/tilde fence 内の見出し、本文、チェックボックスは例として保持されますが、
+状態検証には使われません。
+
+```markdown
+# SL-001 質問IDを再抽出後も安定させる
+
+## 背景と根本原因
+
+確認済みの原因を記載します。
+
+## 根拠
+
+`src/example.py:10`
+
+## 受け入れ条件
+
+- [ ] 実行可能な完了条件を記載します
+
+## 対象外
+
+今回扱わない範囲を記載します。
+
+## 実装計画
+
+着手時の計画をリンクします。
+
+## 完了証拠
+
+完了時にコマンドと結果を記録します。
+```
+
+`受け入れ条件` で `-`、`*`、`+`、`N.`、`N)` を list item として使う場合、すべてを
+非空のチェックボックスにします。`done` では全チェックボックスをチェック済みにします。
+
+## Codex の作業手順
+
+1. check と next を実行します。
+2. 親ワーカーが課題を選び、in_progress と owner を設定します。
+3. 実装ワーカーは担当コードと関連テストだけを変更します。
+4. 親ワーカーが結果を統合し、受け入れ条件と完了証拠を更新します。
+5. render、check、関連テスト、lint を実行してから done にします。
