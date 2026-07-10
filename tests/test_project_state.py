@@ -1413,12 +1413,19 @@ def test_empty_project_commands_are_deterministic(
     (project / "roadmap.md").write_text(
         "## M1 A\n## M2 B\n## M3 C\n## M4 D\n", encoding="utf-8"
     )
-    write_backlog(project / "backlog.md", render_backlog([]))
+    backlog = project / "backlog.md"
+    write_backlog(backlog, render_backlog([]))
 
     assert run("check", tmp_path) == 0
+    assert capsys.readouterr().out == ""
+
+    backlog.write_text("stale\n", encoding="utf-8")
     assert run("render", tmp_path) == 0
+    assert capsys.readouterr().out == f"生成しました: {backlog}\n"
+    assert backlog.read_bytes() == render_backlog([]).encode("utf-8")
+
     assert run("next", tmp_path) == 0
-    assert "SL-" not in capsys.readouterr().out
+    assert capsys.readouterr().out == ""
 
 
 def test_render_does_not_mutate_backlog_when_state_is_invalid(
