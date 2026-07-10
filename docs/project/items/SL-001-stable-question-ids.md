@@ -1,18 +1,24 @@
 ---
 id: SL-001
 title: 質問 ID の安定化と旧 ID 移行
-status: ready
+status: in_progress
 priority: P1
 type: defect
 milestone: M1
 depends_on: []
 touches:
+  - README.md
   - src/sheetlens/detectors/questions.py
-  - src/sheetlens/annotations/schema.py
+  - src/sheetlens/question_ids.py
   - src/sheetlens/pipeline.py
+  - src/sheetlens/cli.py
+  - src/sheetlens/renderers/markdown.py
   - tests/test_questions.py
+  - tests/test_question_ids.py
+  - tests/test_extract_e2e.py
   - tests/test_compile_e2e.py
-owner: null
+  - tests/test_check_e2e.py
+owner: codex
 ---
 
 # SL-001 質問 ID の安定化と旧 ID 移行
@@ -27,10 +33,12 @@ owner: null
 
 ## 受け入れ条件
 
-- [ ] `sheet/category/target` の正規化値から決定的な ID または fingerprint を生成する。
+- [ ] 正規化した `rule/sheet/category/target/text` から決定的な ID と fingerprint を生成する。
 - [ ] 前方へシート、非表示属性、入力規則を追加しても既存質問 ID が変化しない。
-- [ ] 旧連番 ID の移行または stale 警告を提供する。
+- [ ] 旧連番 ID を、annotation YAML の bytes を変更せず catalog 経由で自動解決する。
+- [ ] 一度確定した legacy alias を後続の再抽出で別質問へ付け替えない。
 - [ ] 削除・内容変更された質問 ID を `check` が報告する。
+- [ ] `check` は質問 ID catalog を作成・更新しない。
 
 ## 対象外
 
@@ -38,7 +46,9 @@ owner: null
 
 ## 実装計画
 
-着手時に `docs/superpowers/plans/` へ実装計画を作成し、ここからリンクする。
+設計は
+[`2026-07-10-stable-question-ids-design.md`](../../superpowers/specs/2026-07-10-stable-question-ids-design.md)
+に記録した。設計承認後、`docs/superpowers/plans/` に実装計画を作成してリンクする。
 
 ## 完了証拠
 
