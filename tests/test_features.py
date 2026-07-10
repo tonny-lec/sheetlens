@@ -83,3 +83,30 @@ def test_resolves_current_sheet_range_and_distinguishes_valid_empty_range(make_x
     assert rules["B2"].choices == ["赤", "青"]
     assert rules["C2"].choices == []
     assert workbook.extraction_gaps == []
+
+
+def test_sheet_local_name_shadows_workbook_name_and_other_sheet_falls_back(make_xlsx):
+    def build(wb):
+        input_ws = wb.active
+        input_ws.title = "入力"
+        other_ws = wb.create_sheet("別シート")
+        master = wb.create_sheet("共通マスタ")
+        master["A2"] = "共通1"
+        master["A3"] = "共通2"
+        input_ws["D2"] = "ローカル1"
+        input_ws["D3"] = "ローカル2"
+        wb.defined_names.add(
+            DefinedName("Choices", attr_text="'共通マスタ'!$A$2:$A$3")
+        )
+        input_ws.defined_names.add(
+            DefinedName("cHoIcEs", attr_text="$D$2:$D$3")
+        )
+        _add_list_validation(input_ws, "B2", "=CHOICES")
+        _add_list_validation(other_ws, "B2", "=choices")
+
+    workbook = read_workbook(make_xlsx(build))
+    input_rules = _rules_by_range(workbook, "入力")
+    other_rules = _rules_by_range(workbook, "別シート")
+    assert input_rules["B2"].choices == ["ローカル1", "ローカル2"]
+    assert other_rules["B2"].choices == ["共通1", "共通2"]
+    assert workbook.extraction_gaps == []

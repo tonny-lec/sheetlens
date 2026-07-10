@@ -98,12 +98,28 @@ def _resolve_list(wb_v, current_sheet: str, formula: str) -> _ListResolution:
     if target is not None:
         return _read_range(wb_v, target)
 
-    definition, reason = _find_defined_name(wb_v.defined_names, source)
+    if current_sheet not in wb_v.sheetnames:
+        return _ListResolution([], "sheet_not_found")
+
+    local_definition, reason = _find_defined_name(
+        wb_v[current_sheet].defined_names,
+        source,
+    )
     if reason is not None:
         return _ListResolution([], reason)
-    if definition is None:
+    if local_definition is not None:
+        return _resolve_definition(
+            wb_v,
+            local_definition,
+            default_sheet=current_sheet,
+        )
+
+    workbook_definition, reason = _find_defined_name(wb_v.defined_names, source)
+    if reason is not None:
+        return _ListResolution([], reason)
+    if workbook_definition is None:
         return _ListResolution([], "name_not_found")
-    return _resolve_definition(wb_v, definition, default_sheet=None)
+    return _resolve_definition(wb_v, workbook_definition, default_sheet=None)
 
 
 def read_validations(ws_f, wb_v) -> list[ir.ValidationRule]:
