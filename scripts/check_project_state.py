@@ -32,7 +32,7 @@ FRONT_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", re.S)
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})[^\r\n]*$")
 SECTION_HEADING_RE = re.compile(r"^## ([^\n]+)\r?\n", re.M)
 LIST_ITEM_RE = re.compile(
-    r"^[ \t]*(?:[-+*]|\d{1,9}[.)])(?P<rest>(?:[ \t]+[^\r\n]*)?)\r?$",
+    r"^ {0,3}(?:[-+*]|\d{1,9}[.)])(?P<rest>(?:[ \t]+[^\r\n]*)?)\r?$",
     re.M,
 )
 TASK_CHECKBOX_RE = re.compile(r"^\[([ xX])\][ \t]+\S.*$")
@@ -251,21 +251,24 @@ def _mask_fenced_blocks(text: str) -> str:
     return "".join(masked_lines)
 
 
-def _sections(text: str) -> list[tuple[str, str]]:
+def _sections(text: str, *, strip_content: bool = True) -> list[tuple[str, str]]:
     headings = list(SECTION_HEADING_RE.finditer(_mask_fenced_blocks(text)))
-    return [
-        (
-            heading.group(1).strip(),
-            text[
-                heading.end() : (
-                    headings[index + 1].start()
-                    if index + 1 < len(headings)
-                    else len(text)
-                )
-            ].strip(),
+    sections = []
+    for index, heading in enumerate(headings):
+        content = text[
+            heading.end() : (
+                headings[index + 1].start()
+                if index + 1 < len(headings)
+                else len(text)
+            )
+        ]
+        sections.append(
+            (
+                heading.group(1).strip(),
+                content.strip() if strip_content else content,
+            )
         )
-        for index, heading in enumerate(headings)
-    ]
+    return sections
 
 
 def section_text(item: ProjectItem, name: str) -> str:
@@ -276,7 +279,23 @@ def section_text(item: ProjectItem, name: str) -> str:
 
 
 def _validation_section_text(item: ProjectItem, name: str) -> str:
-    return _mask_fenced_blocks(section_text(item, name)).strip()
+    content = next(
+        (
+            content
+            for heading, content in _sections(item.body, strip_content=False)
+            if heading == name
+        ),
+        "",
+    )
+    masked = _mask_fenced_blocks(content)
+    if not masked.strip():
+        return ""
+    lines = masked.splitlines(keepends=True)
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "".join(lines)
 
 
 def _acceptance_criteria_structure_valid(text: str) -> bool:
@@ -528,7 +547,7 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
             if name not in headings:
                 issues.append(_issue(item.path, f"必須セクションがありません: {name}"))
         if item.status in {"ready", "in_progress", "blocked", "done"}:
-            for name in ("背景と根本原因", "受け入れ条件", "対象外"):
+            for name in ("背景と根本原因", "根拠", "受け入れ条件", "対象外"):
                 if not _validation_section_text(item, name):
                     issues.append(_issue(item.path, f"{item.status} では {name} を記載してください"))
             if not item.touches:

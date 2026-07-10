@@ -480,6 +480,54 @@ def test_validate_items_accepts_nonempty_checkbox_for_active_statuses(
 
 
 @pytest.mark.parametrize("status", ["ready", "in_progress", "blocked"])
+@pytest.mark.parametrize("indent", ["    ", "\t"])
+def test_validate_items_ignores_indented_code_checkbox_for_active_statuses(
+    tmp_path: Path,
+    status: str,
+    indent: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"{indent}- [ ] code",
+    )
+    item = project_item(
+        tmp_path,
+        status=status,
+        touches=("src/a.py",),
+        owner="worker-a" if status == "in_progress" else None,
+        body=body,
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert f"{status} では受け入れ条件をチェックボックスで記載してください" in messages
+
+
+@pytest.mark.parametrize("status", ["ready", "in_progress", "blocked"])
+@pytest.mark.parametrize("indent", ["", " ", "  ", "   "])
+def test_validate_items_accepts_top_level_checkbox_with_commonmark_indent(
+    tmp_path: Path,
+    status: str,
+    indent: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"{indent}- [ ] 挙動を修正する",
+    )
+    item = project_item(
+        tmp_path,
+        status=status,
+        touches=("src/a.py",),
+        owner="worker-a" if status == "in_progress" else None,
+        body=body,
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert f"{status} では受け入れ条件をチェックボックスで記載してください" not in messages
+
+
+@pytest.mark.parametrize("status", ["ready", "in_progress", "blocked"])
 @pytest.mark.parametrize("marker", ["-", "*", "+", "1.", "1)"])
 @pytest.mark.parametrize("variant", ["plain", "mixed", "empty_item", "empty_checkbox"])
 def test_validate_items_rejects_non_checkbox_list_items_for_active_statuses(
@@ -558,6 +606,59 @@ def test_validate_items_rejects_empty_or_fenced_only_acceptance_criteria(
     assert expected.format(status=status) in messages
 
 
+@pytest.mark.parametrize("status", ["ready", "in_progress", "blocked", "done"])
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "",
+        "``` text\nsrc/example.py:10\n```",
+    ],
+)
+def test_validate_items_rejects_empty_or_fenced_only_evidence(
+    tmp_path: Path,
+    status: str,
+    evidence: str,
+) -> None:
+    body = ready_body().replace("src/example.py:10", evidence)
+    if status == "done":
+        body = body.replace("- [ ] 挙動を修正する", "- [x] 挙動を修正する")
+        body += "pytest: passed\n"
+    item = project_item(
+        tmp_path,
+        status=status,
+        touches=("src/a.py",),
+        owner="worker-a" if status == "in_progress" else None,
+        body=body,
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert f"{status} では 根拠 を記載してください" in messages
+
+
+@pytest.mark.parametrize("status", ["proposed", "cancelled"])
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "",
+        "``` text\nsrc/example.py:10\n```",
+    ],
+)
+def test_validate_items_allows_missing_evidence_for_incomplete_statuses(
+    tmp_path: Path,
+    status: str,
+    evidence: str,
+) -> None:
+    body = ready_body().replace("src/example.py:10", evidence)
+    if status == "cancelled":
+        body += "\n## 中止理由\n優先度が変わった。\n"
+    item = project_item(tmp_path, status=status, body=body)
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert f"{status} では 根拠 を記載してください" not in messages
+
+
 @pytest.mark.parametrize("criteria", ["", "挙動を修正する", "- 挙動を修正する"])
 def test_validate_items_allows_incomplete_acceptance_criteria_for_proposed(
     tmp_path: Path,
@@ -598,6 +699,48 @@ def test_validate_items_accepts_checked_done_criterion_for_each_list_marker(
     body = ready_body().replace(
         "- [ ] 挙動を修正する",
         f"{marker} [x] 挙動を修正する",
+    )
+    item = project_item(
+        tmp_path,
+        status="done",
+        touches=("src/a.py",),
+        body=body + "pytest: passed\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert "done では受け入れ条件をすべてチェックしてください" not in messages
+
+
+@pytest.mark.parametrize("indent", ["    ", "\t"])
+def test_validate_items_ignores_indented_code_checkbox_for_done(
+    tmp_path: Path,
+    indent: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"{indent}- [x] code",
+    )
+    item = project_item(
+        tmp_path,
+        status="done",
+        touches=("src/a.py",),
+        body=body + "pytest: passed\n",
+    )
+
+    messages = [issue.message for issue in validate_items([item])]
+
+    assert "done では受け入れ条件をすべてチェックしてください" in messages
+
+
+@pytest.mark.parametrize("indent", ["", " ", "  ", "   "])
+def test_validate_items_accepts_checked_done_checkbox_with_commonmark_indent(
+    tmp_path: Path,
+    indent: str,
+) -> None:
+    body = ready_body().replace(
+        "- [ ] 挙動を修正する",
+        f"{indent}- [x] 挙動を修正する",
     )
     item = project_item(
         tmp_path,
@@ -857,6 +1000,7 @@ def test_validate_items_reports_ready_content_and_touches_requirements(
 
     assert messages == [
         "ready では 背景と根本原因 を記載してください",
+        "ready では 根拠 を記載してください",
         "ready では 受け入れ条件 を記載してください",
         "ready では 対象外 を記載してください",
         "ready では touches が必須です",
