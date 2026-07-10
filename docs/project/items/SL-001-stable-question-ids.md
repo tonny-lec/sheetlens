@@ -1,7 +1,7 @@
 ---
 id: SL-001
 title: 質問 ID の安定化と旧 ID 移行
-status: in_progress
+status: done
 priority: P1
 type: defect
 milestone: M1
@@ -19,7 +19,7 @@ touches:
   - tests/test_compile_e2e.py
   - tests/test_check_e2e.py
   - tests/test_markdown.py
-owner: codex
+owner: null
 ---
 
 # SL-001 質問 ID の安定化と旧 ID 移行
@@ -34,12 +34,12 @@ owner: codex
 
 ## 受け入れ条件
 
-- [ ] 正規化した `rule/sheet/category/target/text` から決定的な ID と fingerprint を生成する。
-- [ ] 前方へシート、非表示属性、入力規則を追加しても既存質問 ID が変化しない。
-- [ ] 旧連番 ID を、annotation YAML の bytes を変更せず catalog 経由で自動解決する。
-- [ ] 一度確定した legacy alias を後続の再抽出で別質問へ付け替えない。
-- [ ] 削除・内容変更された質問 ID を `check` が報告する。
-- [ ] `check` は質問 ID catalog を作成・更新しない。
+- [x] 正規化した `rule/sheet/category/target/text` から決定的な ID と fingerprint を生成する。
+- [x] 前方へシート、非表示属性、入力規則を追加しても既存質問 ID が変化しない。
+- [x] 旧連番 ID を、annotation YAML の bytes を変更せず catalog 経由で自動解決する。
+- [x] 一度確定した legacy alias を後続の再抽出で別質問へ付け替えない。
+- [x] 削除・内容変更された質問 ID を `check` が報告する。
+- [x] `check` は質問 ID catalog を作成・更新しない。
 
 ## 対象外
 
@@ -55,4 +55,8 @@ owner: codex
 
 ## 完了証拠
 
-完了時に検証コマンド、結果、レビュー結果を記録する。
+- focused: `uv run pytest tests/test_questions.py tests/test_question_ids.py tests/test_extract_e2e.py tests/test_compile_e2e.py tests/test_check_e2e.py tests/test_markdown.py -q` — `87 passed in 0.99s`
+- full: `uv run pytest -q` — `352 passed in 1.63s`
+- lint: `uv run ruff check .` — `All checks passed!`
+- project state: `uv run python scripts/check_project_state.py check` — exit 0
+- final whole-branch review: `Ready to merge: Yes`、Critical / Important / Minor すべてなし
