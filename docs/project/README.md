@@ -75,6 +75,14 @@ owner: null
 ---
 ```
 
+front matter の mapping key は一意にします。既知・未知・非文字列を問わず、重複した key や
+hash 不能な key はエラーです。
+
+`touches` は repository root を示す `.`、または canonical な repository-relative POSIX path
+だけを記載します。空文字、絶対パス、Windows drive path、backslash、`.` / `..` segment、
+空 segment、末尾 slash は使用できません。path の競合は component ごとに大文字小文字を
+区別せず判定するため、Windows で同一になる case-only alias も競合します。
+
 本文には `背景と根本原因`、`根拠`、`受け入れ条件`、`対象外`、`実装計画`、
 `完了証拠` の各セクションを置きます。受け入れ条件は Markdown チェックボックスで
 記述します。backtick/tilde fence 内の見出し、本文、チェックボックスは例として保持されますが、

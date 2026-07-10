@@ -18,6 +18,21 @@
 - 基盤の検証完了後は、親ワーカーだけが管理ファイルの状態、担当、依存、backlog を更新する。
 - TDD の red-green-refactor を各タスクで実施する。
 
+## Implementation Status
+
+この Foundation 計画は実行済みです。以下の Task 内コードブロックは実装時点の履歴資料であり、
+再適用しません。現行の `pyproject.toml`、`scripts/check_project_state.py`、
+`tests/test_project_state.py`、`docs/project/README.md` を正とします。
+
+完了時のレビューで、次の契約を追加しています。
+
+- pytest の正規コマンドから root の `scripts` package を import できるようにする。
+- YAML front matter の mapping key 重複と hash 不能 key を構造化エラーとして拒否する。
+- `touches` は `.` または canonical な repository-relative POSIX path に限定する。
+- Windows で同一になる case-only path alias を競合として扱う。
+- `ready`、`in_progress`、`blocked` は非空 checkbox 形式の受け入れ条件を必須にし、
+  `done` は全項目を checked にする。
+
 ---
 
 ### Task 1: 課題 Markdown の解析モデル
@@ -1004,6 +1019,14 @@ touches: []
 owner: null
 ---
 ```
+
+front matter の mapping key は一意にします。既知・未知・非文字列を問わず、重複した key や
+hash 不能な key はエラーです。
+
+`touches` は repository root を示す `.`、または canonical な repository-relative POSIX path
+だけを記載します。空文字、絶対パス、Windows drive path、backslash、`.` / `..` segment、
+空 segment、末尾 slash は使用できません。path の競合は component ごとに大文字小文字を
+区別せず判定するため、Windows で同一になる case-only alias も競合します。
 
 本文には `背景と根本原因`、`根拠`、`受け入れ条件`、`対象外`、`実装計画`、
 `完了証拠` の各セクションを置きます。受け入れ条件は Markdown チェックボックスで

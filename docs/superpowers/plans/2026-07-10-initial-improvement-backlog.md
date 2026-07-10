@@ -337,9 +337,10 @@ Expected: both counts are 17 and check exits 0
 
 Run: `uv run python scripts/check_project_state.py next`
 
-Expected: output includes ready の SL-001 と SL-005, and excludes dependency-bound proposed の
-SL-002, SL-003, SL-004, SL-015。未完了・欠損・重複 dependency の eligibility は Foundation
-Task 5 の focused tests で検証済みであること。
+Expected: output includes 初期並行候補の SL-001、SL-005、SL-014, and excludes
+dependency-bound proposed の SL-002、SL-003、SL-004、SL-015。ほかの依存なし `ready` 課題も
+eligible として表示され得るため、候補表示と実際の選定を区別する。未完了・欠損・重複
+dependency の eligibility は Foundation Task 5 の focused tests で検証済みであること。
 
 - [ ] **Step 3: リポジトリ全体を検証する**
 

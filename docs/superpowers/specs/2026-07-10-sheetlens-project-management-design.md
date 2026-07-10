@@ -96,6 +96,14 @@ owner: null
 `owner` は `in_progress` のときだけ非 null を必須とする。`touches` は `proposed` では空を
 許可するが、`ready` 以降は最低 1 件を必須とする。
 
+front matter の mapping key は一意でなければならず、既知・未知・非文字列を問わず重複を
+拒否する。hash 不能な mapping key もファイル単位の構文エラーとして報告する。
+
+`touches` は repository root を示す `.`、または canonical な repository-relative POSIX path
+だけを許可する。空文字、絶対パス、Windows drive path、backslash、`.` または `..` segment、
+空 segment、末尾 slash は拒否する。同一・親子パスの比較は component ごとに大文字小文字を
+区別せず、Windows 上で同じ実体になる case-only alias も競合として扱う。
+
 ### 本文
 
 すべての課題は次のセクションを持つ。
@@ -193,7 +201,7 @@ uv run python scripts/check_project_state.py next
 
 共通検証:
 
-- front matter の構文、必須フィールド、型、許容値
+- front matter の構文、mapping key の一意性、必須フィールド、型、許容値
 - 課題 ID とファイル名先頭の一致、ID の重複
 - 必須見出しの存在
 - 参照先課題とマイルストーンの存在
@@ -206,16 +214,16 @@ uv run python scripts/check_project_state.py next
 
 状態別検証:
 
-- `ready`: 根本原因、受け入れ条件、対象外、touches が記載済み
-- `in_progress`: owner と touches が記載済み
-- `blocked`: ブロッカーの理由、解除条件、次に確認することが記載済み
+- `ready`: 根本原因、非空 checkbox 形式の受け入れ条件、対象外、touches が記載済み
+- `in_progress`: 非空 checkbox 形式の受け入れ条件、owner、touches が記載済み
+- `blocked`: 非空 checkbox 形式の受け入れ条件、ブロッカーの理由、解除条件、次に確認することが記載済み
 - `done`: 依存課題が完了し、受け入れ条件がすべてチェック済みで、完了証拠が存在
 - `cancelled`: 中止理由が存在
 
 並行作業検証:
 
 - `in_progress` 間に直接または推移的な依存がない
-- `touches` に同一パスまたは親子パスがない
+- `touches` に component 単位で大小文字を無視した同一パスまたは親子パスがない
 - owner が重複していない
 - touches が空でない
 
@@ -254,6 +262,7 @@ ID | 優先度 | 状態 | マイルストーン | 課題 | 依存 | 担当
 - `render` は検証失敗時に既存 backlog を変更しない。
 - backlog の書き込みは一時ファイルへ生成してから置換する。
 - 未知の front matter キーは綴り間違いを防ぐためエラーにする。
+- 重複または hash 不能な front matter キーは任意の値を採用せず、課題ファイルのエラーにする。
 
 ## テスト方針
 
@@ -261,7 +270,7 @@ ID | 優先度 | 状態 | マイルストーン | 課題 | 依存 | 担当
 検証する。
 
 - 正常なプロジェクト
-- front matter の構文エラー、未知キー、必須項目欠落
+- front matter の構文エラー、未知・重複・hash 不能 key、必須項目欠落
 - ID 重複、ファイル名不一致、存在しない依存先
 - 重複 ID の graph/eligibility 除外と曖昧な依存参照
 - 直接循環と推移的循環
@@ -270,6 +279,7 @@ ID | 優先度 | 状態 | マイルストーン | 課題 | 依存 | 担当
 - 未チェック受け入れ条件または完了証拠なしの `done`
 - fenced code 内の疑似見出し、本文、ブロッカー、チェックボックスの無視
 - `-`、`*`、`+`、`N.`、`N)` の checkbox と plain/empty/unchecked item
+- canonical でない `touches` の拒否と、Windows の case-only path alias の競合
 - 不完全な `blocked` と `cancelled`
 - 複数 `in_progress` の依存、パス競合、owner 重複
 - stale な `backlog.md`
