@@ -163,6 +163,38 @@ def test_duplicate_buttons_collapse_but_keep_legacy_aliases():
     }
 
 
+def test_conflicting_list_validations_raise_ambiguous_identity_error():
+    def workbook_with_choices(*choices):
+        return ir.Workbook(
+            source_file="a.xlsx",
+            sha256="00" * 32,
+            sheets=[
+                ir.Sheet(
+                    name="入力",
+                    validations=[
+                        ir.ValidationRule(ranges=["C5"], type="list", choices=[choice])
+                        for choice in choices
+                    ],
+                )
+            ],
+        )
+
+    normal = questions.generate_questions(
+        workbook_with_choices("通常"), {"入力": []}, {"入力": []}
+    )[1]
+    express = questions.generate_questions(
+        workbook_with_choices("特急"), {"入力": []}, {"入力": []}
+    )[1]
+
+    assert normal.identity_sha256 == express.identity_sha256
+    assert normal.content_sha256 != express.content_sha256
+
+    with pytest.raises(questions.QuestionIdentityError, match="同じ identity に異なる質問"):
+        questions.generate_question_set(
+            workbook_with_choices("通常", "特急"), {"入力": []}, {"入力": []}
+        )
+
+
 def test_truncated_digest_collision_raises(monkeypatch):
     monkeypatch.setattr(
         questions,
