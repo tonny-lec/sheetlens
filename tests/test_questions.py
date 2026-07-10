@@ -179,12 +179,22 @@ def test_conflicting_list_validations_raise_ambiguous_identity_error():
             ],
         )
 
-    normal = questions.generate_questions(
-        workbook_with_choices("通常"), {"入力": []}, {"入力": []}
-    )[1]
-    express = questions.generate_questions(
-        workbook_with_choices("特急"), {"入力": []}, {"入力": []}
-    )[1]
+    normal = _by_key(
+        questions.generate_questions(
+            workbook_with_choices("通常"), {"入力": []}, {"入力": []}
+        ),
+        "入力",
+        "dropdown_semantics",
+        "C5",
+    )
+    express = _by_key(
+        questions.generate_questions(
+            workbook_with_choices("特急"), {"入力": []}, {"入力": []}
+        ),
+        "入力",
+        "dropdown_semantics",
+        "C5",
+    )
 
     assert normal.identity_sha256 == express.identity_sha256
     assert normal.content_sha256 != express.content_sha256

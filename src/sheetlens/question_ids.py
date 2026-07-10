@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sheetlens.detectors.questions import Question, QuestionSet, _stable_question
 
 
-_LEGACY_QUESTION_ID_RE = re.compile(r"^q-\d{3,}$")
+_LEGACY_QUESTION_ID_RE = re.compile(r"^q-[0-9]{3,}$")
 _QUESTION_CHECKBOX_RE = re.compile(r"^- \[[ x]\] (?=\*\*)", re.MULTILINE)
 
 
@@ -109,6 +109,17 @@ def _validate_catalog(catalog: QuestionIdCatalog) -> None:
     if len(catalog.current_ids) != len(set(catalog.current_ids)):
         raise QuestionCatalogError("catalog current_ids contains duplicates")
 
+    has_legacy_aliases = bool(catalog.legacy_aliases)
+    has_legacy_source = catalog.legacy_source_sha256 is not None
+    if has_legacy_aliases and not has_legacy_source:
+        raise QuestionCatalogError(
+            "catalog legacy_aliases require a non-null legacy_source_sha256"
+        )
+    if has_legacy_source and not has_legacy_aliases:
+        raise QuestionCatalogError(
+            "catalog legacy_source_sha256 requires at least one legacy alias"
+        )
+
     for question_id, entry in catalog.questions.items():
         question = Question(id=question_id, **entry.model_dump())
         _catalog_question(question)
@@ -126,6 +137,14 @@ def _validate_catalog(catalog: QuestionIdCatalog) -> None:
                 f"multiple current questions share identity_sha256: {prior_id}, {question_id}"
             )
         current_by_identity[entry.identity_sha256] = question_id
+
+    for legacy_id, target in catalog.legacy_aliases.items():
+        if not is_legacy_question_id(legacy_id):
+            raise QuestionCatalogError(f"invalid legacy alias key: {legacy_id}")
+        if target not in catalog.questions:
+            raise QuestionCatalogError(
+                f"legacy alias target is missing from catalog questions: {legacy_id} -> {target}"
+            )
 
 
 def is_legacy_question_id(question_id: str) -> bool:

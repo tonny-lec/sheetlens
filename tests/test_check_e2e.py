@@ -1,6 +1,7 @@
 import json
 
 from openpyxl.worksheet.datavalidation import DataValidation
+import pytest
 from typer.testing import CliRunner
 
 from sheetlens.cli import app
@@ -137,14 +138,16 @@ def test_check_reports_changed_answer_and_current_id_without_writes(make_xlsx):
 
     result = _check_read_only(project)
 
+    total = len(catalog.current_ids)
     assert result.exit_code == 0, result.output
     assert f"警告（質問ID変更）: {old_id} -> {current_id}" in result.output
+    assert f"未回答質問: {total} / {total}" in result.output
 
 
 def test_check_reports_deleted_answer_without_writes(make_xlsx):
     project = _extract(make_xlsx, with_validation=True)
     deleted_id = _question_id(project, "list_validation")
-    _replace_raw_and_catalog(
+    catalog = _replace_raw_and_catalog(
         project,
         lambda raw: setattr(raw.sheets[0], "validations", []),
     )
@@ -152,8 +155,10 @@ def test_check_reports_deleted_answer_without_writes(make_xlsx):
 
     result = _check_read_only(project)
 
+    total = len(catalog.current_ids)
     assert result.exit_code == 0, result.output
     assert f"警告（質問ID削除）: {deleted_id}" in result.output
+    assert f"未回答質問: {total} / {total}" in result.output
 
 
 def test_check_reports_unresolved_answer_without_writes(make_xlsx):
@@ -163,8 +168,10 @@ def test_check_reports_unresolved_answer_without_writes(make_xlsx):
 
     result = _check_read_only(project)
 
+    total = len(_catalog(project).current_ids)
     assert result.exit_code == 0, result.output
     assert f"警告（質問ID未解決）: {unknown_id}" in result.output
+    assert f"未回答質問: {total} / {total}" in result.output
 
 
 def test_check_rejects_catalog_source_mismatch_without_writes(make_xlsx):
@@ -173,6 +180,24 @@ def test_check_rejects_catalog_source_mismatch_without_writes(make_xlsx):
     payload = json.loads(catalog_path.read_text(encoding="utf-8"))
     payload["source_sha256"] = "f" * 64
     catalog_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _check_read_only(project)
+
+    assert result.exit_code == 1
+    assert "質問 ID エラー:" in result.output
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("invalid_catalog", ["malformed", "unsupported-schema"])
+def test_check_rejects_invalid_catalog_without_writes(make_xlsx, invalid_catalog):
+    project = _extract(make_xlsx, name=f"{invalid_catalog}.xlsx")
+    catalog_path = project / "question-ids.json"
+    if invalid_catalog == "malformed":
+        catalog_path.write_text("{", encoding="utf-8")
+    else:
+        payload = json.loads(catalog_path.read_text(encoding="utf-8"))
+        payload["schema_version"] = 99
+        catalog_path.write_text(json.dumps(payload), encoding="utf-8")
 
     result = _check_read_only(project)
 

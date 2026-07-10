@@ -63,6 +63,7 @@ def test_catalog_schema_constants_and_alias_provenance():
         "11" * 32,
         question_set,
         legacy_aliases=question_set.legacy_aliases,
+        legacy_source_sha256="22" * 32,
     )
 
     assert catalog.schema_version == 1
@@ -166,6 +167,80 @@ def test_load_catalog_rejects_question_key_that_disagrees_with_recomputed_id(tmp
         load_catalog(path)
 
 
+@pytest.mark.parametrize(
+    "invalid_state",
+    ["invalid-key", "dangling-target", "missing-provenance", "orphaned-provenance"],
+)
+def test_load_catalog_rejects_invalid_legacy_alias_invariants(tmp_path, invalid_state):
+    path = tmp_path / "question-ids.json"
+    save_catalog(path, _catalog_fixture())
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    if invalid_state == "invalid-key":
+        target = next(iter(payload["legacy_aliases"].values()))
+        payload["legacy_aliases"] = {"legacy-001": target}
+    elif invalid_state == "dangling-target":
+        alias = next(iter(payload["legacy_aliases"]))
+        payload["legacy_aliases"][alias] = "q2-missing-0000000000000000"
+    elif invalid_state == "missing-provenance":
+        payload["legacy_source_sha256"] = None
+    else:
+        payload["legacy_aliases"] = {}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(QuestionCatalogError, match="legacy"):
+        load_catalog(path)
+
+
+def test_build_catalog_rejects_invalid_legacy_alias_key():
+    question_set = _generated_question_set("入力")
+
+    with pytest.raises(QuestionCatalogError, match="legacy alias"):
+        build_catalog(
+            "11" * 32,
+            question_set,
+            legacy_aliases={"legacy-001": question_set.questions[0].id},
+            legacy_source_sha256="22" * 32,
+        )
+
+
+def test_build_catalog_rejects_dangling_legacy_alias_target():
+    with pytest.raises(QuestionCatalogError, match="target"):
+        build_catalog(
+            "11" * 32,
+            _generated_question_set("入力"),
+            legacy_aliases={"q-001": "q2-missing-0000000000000000"},
+            legacy_source_sha256="22" * 32,
+        )
+
+
+def test_build_catalog_rejects_alias_without_legacy_source_provenance():
+    question_set = _generated_question_set("入力")
+
+    with pytest.raises(QuestionCatalogError, match="legacy_source_sha256"):
+        build_catalog(
+            "11" * 32,
+            question_set,
+            legacy_aliases={"q-001": question_set.questions[0].id},
+        )
+
+
+def test_build_catalog_rejects_legacy_source_without_aliases():
+    with pytest.raises(QuestionCatalogError, match="legacy_source_sha256"):
+        build_catalog(
+            "11" * 32,
+            _generated_question_set("入力"),
+            legacy_source_sha256="22" * 32,
+        )
+
+
+def test_resolver_rejects_invalid_alias_catalog_before_authorizing_current_id():
+    catalog = _catalog_fixture().model_copy(update={"legacy_source_sha256": None})
+
+    with pytest.raises(QuestionCatalogError, match="legacy_source_sha256"):
+        resolve_answered_ids([catalog.current_ids[0]], catalog)
+
+
 def test_validate_catalog_rejects_fresh_question_set_difference_despite_source_match():
     catalog = _catalog_fixture()
     different = _generated_question_set("別シート")
@@ -232,7 +307,12 @@ def test_build_catalog_replaces_normalization_only_raw_representation():
 
 def test_build_catalog_rejects_previous_alias_with_different_target():
     old, current = _changed_question_pair()
-    previous = build_catalog("11" * 32, _question_set(old), legacy_aliases={"q-001": old.id})
+    previous = build_catalog(
+        "11" * 32,
+        _question_set(old),
+        legacy_aliases={"q-001": old.id},
+        legacy_source_sha256="aa" * 32,
+    )
 
     with pytest.raises(QuestionCatalogError, match="q-001"):
         build_catalog(
@@ -244,9 +324,11 @@ def test_build_catalog_rejects_previous_alias_with_different_target():
 
 
 def test_build_catalog_rejects_changed_previous_legacy_source():
+    question_set = _generated_question_set("入力")
     previous = build_catalog(
         "11" * 32,
-        _generated_question_set("入力"),
+        question_set,
+        legacy_aliases={"q-001": question_set.questions[0].id},
         legacy_source_sha256="aa" * 32,
     )
 
@@ -329,7 +411,12 @@ def test_legacy_alias_to_historical_id_is_expanded_before_classification(
             "sheet_role", "別シート", "別シート", "sheet_role", "別の質問"
         )
     )
-    previous = build_catalog("11" * 32, _question_set(old), legacy_aliases={"q-001": old.id})
+    previous = build_catalog(
+        "11" * 32,
+        _question_set(old),
+        legacy_aliases={"q-001": old.id},
+        legacy_source_sha256="aa" * 32,
+    )
     catalog = build_catalog("22" * 32, _question_set(current), previous=previous)
 
     result = resolve_answered_ids(["q-001"], catalog)

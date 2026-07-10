@@ -129,6 +129,9 @@ def test_generated_readme_documents_stable_question_ids():
     assert "alias は一度保存した対応先から変更しません" in md
     assert "`annotations/*.yaml` を書き換えません" in md
     assert "回答時点を証明するものではありません" in md
+    assert "暗号学的な完全性" in md
+    assert "別の有効な過去/現行 ID" in md
+    assert "`question-ids.json` を手で編集しないでください" in md
 
 
 def test_repository_readme_documents_stable_question_ids():
@@ -140,6 +143,9 @@ def test_repository_readme_documents_stable_question_ids():
     assert "alias は一度保存した対応先から変更しません" in readme
     assert "`annotations/*.yaml` の質問 ID を書き換えません" in readme
     assert "回答時点を証明するものではありません" in readme
+    assert "暗号学的な完全性" in readme
+    assert "別の有効な過去/現行 ID" in readme
+    assert "`question-ids.json` を手で編集しないでください" in readme
     assert "q2-input_region-<16hex>" in readme
     assert "(q-003)" not in readme
 

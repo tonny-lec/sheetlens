@@ -58,7 +58,8 @@ uv run sheetlens check 見積管理.sheetlens
 現在の質問 ID は、質問の内容から決定的に生成される `q2-<rule>-<16hex>` 形式です。
 旧形式の `q-NNN` は `question-ids.json` に保存された alias で引き続き解決し、alias は一度保存した対応先から変更しません。
 移行時も SheetLens は `annotations/*.yaml` の質問 ID を書き換えません。
-catalog の `legacy_source_sha256` は alias を作ったアップグレード前の抽出 snapshot の由来であり、回答時点を証明するものではありません。
+catalog の `legacy_source_sha256` は alias を作ったアップグレード前の抽出 snapshot の由来を示す文脈情報であり、暗号学的な完全性や回答時点を証明するものではありません。
+`question-ids.json` を手で編集しないでください。alias を別の有効な過去/現行 ID へ意図的に付け替えた場合、SheetLens はその改ざんを検出できません。
 
 シート Markdown の例（抜粋）:
 

@@ -189,8 +189,10 @@ def render_readme(
         "- 旧形式の `q-NNN` は `question-ids.json` の alias で引き続き解決し、"
         "alias は一度保存した対応先から変更しません。",
         "- SheetLens は質問 ID を含む `annotations/*.yaml` を書き換えません。",
-        "- `legacy_source_sha256` は alias を作ったアップグレード前の抽出 snapshot の由来であり、"
-        "回答時点を証明するものではありません。",
+        "- `legacy_source_sha256` は alias を作ったアップグレード前の抽出 snapshot の由来を示す"
+        "文脈情報であり、暗号学的な完全性や回答時点を証明するものではありません。",
+        "- `question-ids.json` を手で編集しないでください。alias を別の有効な過去/現行 ID へ"
+        "意図的に付け替えた場合、SheetLens はその改ざんを検出できません。",
         "",
         "## シート一覧",
         "",
