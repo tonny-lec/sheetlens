@@ -208,6 +208,41 @@ def test_parse_item_rejects_duplicate_yaml_mapping_keys(
     ]
 
 
+def test_parse_item_reports_unhashable_yaml_mapping_key(tmp_path: Path) -> None:
+    path = tmp_path / "SL-001-unhashable-key.md"
+    write_item(path, valid_front() + "\n? [a, b]\n: value")
+
+    item, issues = parse_item(path)
+
+    assert item is None
+    assert len(issues) == 1
+    assert issues[0].path == path
+    assert issues[0].message.startswith(
+        "YAML front matter が不正です: while constructing a mapping"
+    )
+    assert "found unhashable key" in issues[0].message
+    assert "line " in issues[0].message
+    assert "column " in issues[0].message
+
+
+def test_load_items_reports_unhashable_yaml_mapping_key_and_continues(
+    tmp_path: Path,
+) -> None:
+    invalid = tmp_path / "SL-001-unhashable-key.md"
+    write_item(invalid, valid_front() + "\n? [a, b]\n: value")
+    write_item(tmp_path / "SL-002-readable.md", valid_front("SL-002"))
+
+    items, issues = load_items(tmp_path)
+
+    assert [item.id for item in items] == ["SL-002"]
+    assert len(issues) == 1
+    assert issues[0].path == invalid
+    assert issues[0].message.startswith(
+        "YAML front matter が不正です: while constructing a mapping"
+    )
+    assert "found unhashable key" in issues[0].message
+
+
 @pytest.mark.parametrize(
     "touch",
     [".", "src/a.py", "docs/project/items", "report:v2.md", "docs/spec:v2.md"],
