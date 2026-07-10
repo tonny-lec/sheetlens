@@ -265,37 +265,37 @@ git commit -m "docs: register analysis reliability backlog"
 
 - [ ] **Step 1: SL-014 を次の内容で作成する**
 
-- Metadata: `ready`、`P1`、`quality`、`M4`、依存なし
+- Metadata: `title=実 xlsm の Windows E2E 検証`、`ready`、`P1`、`quality`、`M4`、依存なし
 - Touches: `tests/fixtures`、`tests/test_vba.py`、`tests/test_extract_e2e.py`、`.github/workflows`、`README.md`
 - 根本原因: 想定環境は Windows と実 xlsm だが、VBA 正常系は parser mock、ボタンは最小手製 ZIP で、本番形式を通していない。
-- 根拠: `docs/superpowers/specs/2026-07-07-sheetlens-design.md:25`、`README.md:110`、`tests/test_vba.py:37-129`。
+- 根拠: `docs/superpowers/specs/2026-07-07-sheetlens-design.md:25`、`README.md:112`、`tests/test_vba.py:37-129`。
 - 受け入れ条件: 再配布可能な最小 xlsm fixture を追加する。VBA module、event、フォームボタン、文字コード、gap を E2E 検証する。Windows CI で成功する。業務 PC の受入結果を記録する。
 - 対象外: 実業務ファイルのリポジトリ保存。
 
 - [ ] **Step 2: SL-015 を次の内容で作成する**
 
-- Metadata: `proposed`、`P1`、`quality`、`M4`、`depends_on=[SL-001, SL-003]`
+- Metadata: `title=再現可能な A/B 評価基盤`、`proposed`、`P1`、`quality`、`M4`、`depends_on=[SL-001, SL-003]`
 - Touches: `eval`、`tests/test_eval_dummy.py`、`README.md`
 - 根本原因: A/B 評価は手動セッションと主観的な「明確に上回る」判定で、モデル、prompt、試行数、rubric、閾値を再現できない。
-- 根拠: `eval/README.md:10-20`、`README.md:112`、`eval/questions.yaml:5`。
+- 根拠: `eval/README.md:10-20`、`README.md:113`。
 - 受け入れ条件: 評価 manifest、固定 prompt、モデル設定、複数試行、rubric、閾値、結果 JSON/Markdown schema を定義する。構造層だけでなく意味層 QA と負例を含める。欠損回答も採点する。
 - 対象外: 特定 LLM ベンダーへの固定と本番業務データの収集。
 
 - [ ] **Step 3: SL-016 を次の内容で作成する**
 
-- Metadata: `ready`、`P2`、`quality`、`M4`、依存なし
+- Metadata: `title=golden test と CI 品質ゲート`、`ready`、`P2`、`quality`、`M4`、依存なし
 - Touches: `pyproject.toml`、`.github/workflows`、`tests/golden`、`tests/test_markdown.py`、`tests/test_machine.py`
-- 根本原因: CI、型チェック、coverage gate、設計書が要求する出力全体の golden test がない。
-- 根拠: `pyproject.toml:17-30`、`docs/superpowers/specs/2026-07-07-sheetlens-design.md:187-196`、`tests/test_markdown.py:26`。
+- 根本原因: CI、型チェック、coverage gate がなく、設計書が要求する Markdown golden snapshot に対して現在の Markdown テストは部分文字列だけを検証する。
+- 根拠: `pyproject.toml:17-30`、`docs/superpowers/specs/2026-07-07-sheetlens-design.md:187-196`、`tests/test_markdown.py:26-41`。
 - 受け入れ条件: Ubuntu/Windows と Python 3.12-3.14 の CI を追加する。lock、pytest、Ruff、型、coverage、build、wheel smoke を検証する。代表 fixture の raw、manifest、Markdown の決定的 golden を追加する。新規品質依存は事前承認を得る。
 - 対象外: すべての Python/OS 組み合わせと100% coverage。
 
 - [ ] **Step 4: SL-017 を次の内容で作成する**
 
-- Metadata: `ready`、`P3`、`quality`、`M4`、依存なし
+- Metadata: `title=パッケージとリポジトリの衛生管理`、`ready`、`P3`、`quality`、`M4`、依存なし
 - Touches: `pyproject.toml`、`.gitignore`、`README.md`
-- 根本原因: 配布メタデータと sdist 境界が未定義で、生成 xlsx、`.sheetlens/`、build、coverage 成果物の ignore が不足する。
-- 根拠: `pyproject.toml:1-24`、`.gitignore:1-4`、`README.md:92`。
+- 根本原因: 配布メタデータと sdist 境界が不十分で、生成 xlsx、`.sheetlens/`、build、coverage 成果物の ignore が不足する。
+- 根拠: `pyproject.toml:1-25`、`.gitignore:1-4`、`README.md:92-95`。
 - 受け入れ条件: readme、license、authors、URLs、classifiers を定義する。sdist include/exclude と wheel smoke を検証する。生成 Excel、`*.sheetlens/`、dist、build、coverage を ignore し、実業務 Excel の持込禁止を文書化する。
 - 対象外: PyPI 公開とリリース自動化。
 
