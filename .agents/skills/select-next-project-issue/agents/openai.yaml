@@ -1,0 +1,4 @@
+interface:
+  display_name: "Select Next Project Issue"
+  short_description: "Select one SheetLens issue to continue or start"
+  default_prompt: "Use $select-next-project-issue to select the one SheetLens project issue I should continue or start next."
