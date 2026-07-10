@@ -12,5 +12,8 @@
 | [SL-006](items/SL-006-conditional-format-ir.md) | P1 | ready | M2 | 条件付き書式 IR の完全化 | — | — |
 | [SL-007](items/SL-007-cell-display-semantics.md) | P1 | ready | M2 | セルの型、表示形式、表示意味の保持 | — | — |
 | [SL-008](items/SL-008-artifact-presence.md) | P1 | ready | M2 | グラフ、図形、ピボット等の存在記録 | — | — |
+| [SL-011](items/SL-011-input-formula-regions.md) | P1 | ready | M3 | 手入力列と数式列を分離した質問生成 | — | — |
 | [SL-009](items/SL-009-structural-range.md) | P2 | ready | M2 | structural range と非表示範囲の修正 | — | — |
 | [SL-010](items/SL-010-vml-buttons.md) | P2 | ready | M2 | VML ボタン抽出の XML 解析化 | — | — |
+| [SL-012](items/SL-012-formula-dependency-parser.md) | P2 | ready | M3 | 数式正規化と依存グラフの token 解析化 | — | — |
+| [SL-013](items/SL-013-atomic-extract-cli-errors.md) | P2 | ready | M3 | アトミック再抽出と CLI エラー統一 | — | — |
