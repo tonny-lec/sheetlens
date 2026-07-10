@@ -1,4 +1,5 @@
 import json
+import shutil
 
 import openpyxl
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -101,10 +102,27 @@ def test_extract_preserves_annotations(make_xlsx):
     proj = src.parent / "a.sheetlens"
     (proj / "annotations").mkdir(parents=True)
     keep = proj / "annotations" / "見積入力.yaml"
-    keep.write_text("sheet: 見積入力\n", encoding="utf-8")
+    malformed = b"sheet: [\xff\x00unterminated"
+    keep.write_bytes(malformed)
     result = runner.invoke(app, ["extract", str(src)])
     assert result.exit_code == 0, result.output
-    assert keep.read_text(encoding="utf-8") == "sheet: 見積入力\n"
+    assert keep.read_bytes() == malformed
+
+
+def test_extract_refuses_catalog_without_raw_and_preserves_project_state(make_xlsx):
+    src = make_xlsx(_build, name="orphan-catalog.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / "orphan-catalog.sheetlens"
+    catalog_path = proj / "question-ids.json"
+    catalog_bytes = catalog_path.read_bytes()
+    shutil.rmtree(proj / "structure")
+
+    result = runner.invoke(app, ["extract", str(src)])
+
+    assert result.exit_code == 1
+    assert "raw.json" in result.output
+    assert catalog_path.read_bytes() == catalog_bytes
+    assert not (proj / "structure").exists()
 
 
 def test_reextract_bootstraps_legacy_alias_without_editing_annotations(make_xlsx):
@@ -174,6 +192,8 @@ def test_second_reextract_does_not_repoint_legacy_alias(make_xlsx):
         (proj / "question-ids.json").read_text(encoding="utf-8")
     )
     original_target = first_catalog.legacy_aliases["q-001"]
+    first_bootstrap_source = first_catalog.legacy_source_sha256
+    assert first_bootstrap_source is not None
 
     _insert_sheet_first(src, "追加2")
     result = runner.invoke(app, ["extract", str(src)])
@@ -184,6 +204,7 @@ def test_second_reextract_does_not_repoint_legacy_alias(make_xlsx):
     )
     assert second_catalog.legacy_aliases["q-001"] == original_target
     assert second_catalog.questions[original_target].sheet == "見積入力"
+    assert second_catalog.legacy_source_sha256 == first_bootstrap_source
     assert annotation.read_bytes() == annotation_bytes
 
 
@@ -224,6 +245,45 @@ def test_reextract_identity_error_preserves_entire_structure_and_annotations(mak
     assert result.exit_code == 1
     assert "質問 ID エラー:" in result.output
     assert "Traceback" not in result.output
+    assert _structure_bytes(proj) == structure_bytes
+    assert annotation.read_bytes() == annotation_bytes
+
+
+def test_reextract_rejects_tampered_current_ids_before_deleting_structure(make_xlsx):
+    src = make_xlsx(_build, name="tampered-current-ids.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / "tampered-current-ids.sheetlens"
+    annotation, annotation_bytes = _write_legacy_annotation(proj)
+    structure_bytes = _structure_bytes(proj)
+    catalog_path = proj / "question-ids.json"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    catalog["current_ids"] = catalog["current_ids"][1:]
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+
+    result = runner.invoke(app, ["extract", str(src)])
+
+    assert result.exit_code == 1
+    assert "質問 ID エラー:" in result.output
+    assert _structure_bytes(proj) == structure_bytes
+    assert annotation.read_bytes() == annotation_bytes
+
+
+def test_reextract_rejects_tampered_current_entry_before_deleting_structure(make_xlsx):
+    src = make_xlsx(_build, name="tampered-current-entry.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / "tampered-current-entry.sheetlens"
+    annotation, annotation_bytes = _write_legacy_annotation(proj)
+    structure_bytes = _structure_bytes(proj)
+    catalog_path = proj / "question-ids.json"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    question_id = catalog["current_ids"][0]
+    catalog["questions"][question_id]["text"] += " 改ざん"
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+
+    result = runner.invoke(app, ["extract", str(src)])
+
+    assert result.exit_code == 1
+    assert "質問 ID エラー:" in result.output
     assert _structure_bytes(proj) == structure_bytes
     assert annotation.read_bytes() == annotation_bytes
 

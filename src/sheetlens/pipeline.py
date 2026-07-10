@@ -191,9 +191,15 @@ def extract_workbook(src: Path, out: Path | None = None) -> Path:
     proj = out or src.with_name(src.stem + ".sheetlens")
     structure_dir = proj / "structure"
     analysis = analyze(wb)
+    raw_path = structure_dir / "raw.json"
+
+    if (proj / "question-ids.json").exists() and not raw_path.exists():
+        raise ExistingStructureError(
+            f"{proj} は question-ids.json が存在しますが structure/raw.json がありません。"
+            "catalog の履歴を保護するため中断しました。"
+        )
 
     if structure_dir.exists():
-        raw_path = structure_dir / "raw.json"
         if not raw_path.exists():
             raise ExistingStructureError(
                 f"{structure_dir} は SheetLens の出力ではありません（raw.json なし）。"
