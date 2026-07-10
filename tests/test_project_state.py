@@ -8,11 +8,14 @@ import scripts.check_project_state as project_state
 from scripts.check_project_state import (
     ProjectItem,
     dependency_closure,
+    eligible_items,
     load_items,
     load_milestones,
+    main,
     parse_item,
     paths_conflict,
     render_backlog,
+    run,
     section_text,
     validate_backlog,
     validate_items,
@@ -1148,3 +1151,291 @@ def test_write_backlog_closes_handle_when_write_fails(
     assert_fd_closed(captured_fds[0])
     assert backlog.read_bytes() == b"existing\n"
     assert list(tmp_path.glob(".backlog-*")) == []
+
+
+def test_eligible_items_excludes_non_done_missing_and_duplicate_dependencies(
+    tmp_path: Path,
+) -> None:
+    done = ProjectItem(
+        tmp_path / "SL-001.md",
+        "SL-001",
+        "Done",
+        "done",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/done.py",),
+        None,
+        ready_body().replace("- [ ]", "- [x]") + "\ncommand: passed\n",
+    )
+    eligible = ProjectItem(
+        tmp_path / "SL-002.md",
+        "SL-002",
+        "Eligible",
+        "ready",
+        "P1",
+        "defect",
+        "M1",
+        ("SL-001",),
+        ("src/eligible.py",),
+        None,
+        ready_body(),
+    )
+    pending = ProjectItem(
+        tmp_path / "SL-003.md",
+        "SL-003",
+        "Pending",
+        "proposed",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        (),
+        None,
+        ready_body(),
+    )
+    blocked = ProjectItem(
+        tmp_path / "SL-004.md",
+        "SL-004",
+        "Blocked",
+        "ready",
+        "P1",
+        "defect",
+        "M1",
+        ("SL-003",),
+        ("src/blocked.py",),
+        None,
+        ready_body(),
+    )
+    missing = ProjectItem(
+        tmp_path / "SL-005.md",
+        "SL-005",
+        "Missing",
+        "ready",
+        "P1",
+        "defect",
+        "M1",
+        ("SL-999",),
+        ("src/missing.py",),
+        None,
+        ready_body(),
+    )
+    duplicate_a = ProjectItem(
+        tmp_path / "SL-006-a.md",
+        "SL-006",
+        "Duplicate A",
+        "ready",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/a.py",),
+        None,
+        ready_body(),
+    )
+    duplicate_b = ProjectItem(
+        tmp_path / "SL-006-b.md",
+        "SL-006",
+        "Duplicate B",
+        "ready",
+        "P1",
+        "defect",
+        "M1",
+        (),
+        ("src/b.py",),
+        None,
+        ready_body(),
+    )
+    ambiguous = ProjectItem(
+        tmp_path / "SL-007.md",
+        "SL-007",
+        "Ambiguous",
+        "ready",
+        "P1",
+        "defect",
+        "M1",
+        ("SL-006",),
+        ("src/ambiguous.py",),
+        None,
+        ready_body(),
+    )
+    items = [ambiguous, duplicate_b, missing, pending, eligible, done, blocked, duplicate_a]
+
+    assert [item.id for item in eligible_items(items)] == ["SL-002"]
+    assert [item.id for item in eligible_items(list(reversed(items)))] == ["SL-002"]
+
+
+def test_next_returns_only_unblocked_ready_items(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "docs" / "project"
+    items_dir = project / "items"
+    project.mkdir(parents=True)
+    (project / "roadmap.md").write_text("## M1 Test\n## M2 Test\n", encoding="utf-8")
+    first_front = valid_front().replace("status: proposed", "status: ready")
+    first_front = first_front.replace("touches: []", "touches: [src/a.py]")
+    write_item(items_dir / "SL-001-first.md", first_front, ready_body())
+    second_front = valid_front("SL-002").replace("depends_on: []", "depends_on: [SL-001]")
+    second_front = second_front.replace("touches: []", "touches: [src/b.py]")
+    write_item(items_dir / "SL-002-second.md", second_front, ready_body())
+    third_front = valid_front("SL-003").replace("status: proposed", "status: ready")
+    third_front = third_front.replace("priority: P1", "priority: P0")
+    third_front = third_front.replace("milestone: M1", "milestone: M2")
+    third_front = third_front.replace("touches: []", "touches: [src/c.py]")
+    write_item(items_dir / "SL-003-third.md", third_front, ready_body())
+    fourth_front = valid_front("SL-004").replace("status: proposed", "status: ready")
+    fourth_front = fourth_front.replace("touches: []", "touches: [src/d.py]")
+    write_item(items_dir / "SL-004-fourth.md", fourth_front, ready_body())
+    fifth_front = valid_front("SL-005").replace("status: proposed", "status: ready")
+    fifth_front = fifth_front.replace("milestone: M1", "milestone: M2")
+    fifth_front = fifth_front.replace("touches: []", "touches: [src/e.py]")
+    write_item(items_dir / "SL-005-fifth.md", fifth_front, ready_body())
+    (project / "backlog.md").write_text("", encoding="utf-8")
+
+    code = run("next", tmp_path)
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "SL-002" not in output
+    assert [line for line in output.splitlines() if line.startswith("P")] == [
+        "P0 SL-003 安定質問ID / 並行可能",
+        "P1 SL-001 安定質問ID / 並行可能",
+        "P1 SL-004 安定質問ID / 並行可能",
+        "P1 SL-005 安定質問ID / 並行可能",
+    ]
+
+
+def test_next_reports_active_conflicts_in_stable_id_order(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "docs" / "project"
+    items_dir = project / "items"
+    project.mkdir(parents=True)
+    (project / "roadmap.md").write_text("## M1 Test\n", encoding="utf-8")
+    candidate = valid_front().replace("status: proposed", "status: ready")
+    candidate = candidate.replace(
+        "touches: []", "touches: [src/a/file.py, src/b/file.py]"
+    )
+    write_item(items_dir / "SL-001-candidate.md", candidate, ready_body())
+    for item_id, touch in (("SL-006", "src/a"), ("SL-007", "src/b")):
+        active = valid_front(item_id).replace("status: proposed", "status: in_progress")
+        active = active.replace("touches: []", f"touches: [{touch}]")
+        active = active.replace("owner: null", f"owner: worker-{item_id}")
+        write_item(items_dir / f"{item_id}-active.md", active, ready_body())
+    (project / "backlog.md").write_text("", encoding="utf-8")
+
+    assert run("next", tmp_path) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "P1 SL-001 安定質問ID / 競合: SL-006, SL-007"
+    ]
+
+
+def test_next_prints_no_candidates_when_duplicate_state_is_invalid(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "docs" / "project"
+    items_dir = project / "items"
+    project.mkdir(parents=True)
+    (project / "roadmap.md").write_text("## M1 Test\n", encoding="utf-8")
+    duplicate = valid_front().replace("status: proposed", "status: ready")
+    duplicate = duplicate.replace("touches: []", "touches: [src/a.py]")
+    write_item(items_dir / "SL-001-a.md", duplicate, ready_body())
+    write_item(items_dir / "SL-001-b.md", duplicate, ready_body())
+    (project / "backlog.md").write_text("", encoding="utf-8")
+
+    assert run("next", tmp_path) == 1
+    output = capsys.readouterr().out
+    assert "課題 ID が重複しています: SL-001" in output
+    assert " / 並行可能" not in output
+    assert " / 競合:" not in output
+
+
+def test_next_collects_all_state_errors_before_candidate_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "docs" / "project"
+    items_dir = project / "items"
+    project.mkdir(parents=True)
+    (project / "roadmap.md").write_text("## M1 Test\n", encoding="utf-8")
+    write_item(items_dir / "SL-001-invalid.md", "not: valid")
+    first = valid_front("SL-002").replace("status: proposed", "status: in_progress")
+    first = first.replace("touches: []", "touches: [src/shared]")
+    first = first.replace("owner: null", "owner: worker-a")
+    first = first.replace("depends_on: []", "depends_on: [SL-999]")
+    write_item(items_dir / "SL-002-first.md", first, ready_body())
+    second = valid_front("SL-003").replace("status: proposed", "status: in_progress")
+    second = second.replace("milestone: M1", "milestone: M2")
+    second = second.replace("touches: []", "touches: [src/shared/file.py]")
+    second = second.replace("owner: null", "owner: worker-b")
+    write_item(items_dir / "SL-003-second.md", second, ready_body())
+
+    assert run("next", tmp_path) == 1
+
+    output = capsys.readouterr().out
+    assert "必須キーがありません: id" in output
+    assert "roadmap にマイルストーンがありません: M2" in output
+    assert "依存先が存在しません: SL-999" in output
+    assert "SL-002 と SL-003 の touches が競合しています" in output
+    assert " / 並行可能" not in output
+    assert " / 競合:" not in output
+
+
+def test_check_reports_stale_backlog_and_render_synchronizes_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "docs" / "project"
+    items_dir = project / "items"
+    project.mkdir(parents=True)
+    (project / "roadmap.md").write_text("## M1 Test\n", encoding="utf-8")
+    write_item(items_dir / "SL-001-first.md", valid_front(), ready_body())
+    backlog = project / "backlog.md"
+    backlog.write_text("stale\n", encoding="utf-8")
+
+    assert run("check", tmp_path) == 1
+    assert "backlog.md が課題ファイルと同期していません" in capsys.readouterr().out
+    assert backlog.read_text(encoding="utf-8") == "stale\n"
+
+    assert run("render", tmp_path) == 0
+    assert capsys.readouterr().out == f"生成しました: {backlog}\n"
+    assert backlog.read_text(encoding="utf-8") == render_backlog(load_items(items_dir)[0])
+
+    assert run("check", tmp_path) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_render_does_not_mutate_backlog_when_state_is_invalid(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "docs" / "project"
+    items_dir = project / "items"
+    project.mkdir(parents=True)
+    (project / "roadmap.md").write_text("## M1 Test\n", encoding="utf-8")
+    duplicate = valid_front()
+    write_item(items_dir / "SL-001-a.md", duplicate, ready_body())
+    write_item(items_dir / "SL-001-b.md", duplicate, ready_body())
+    backlog = project / "backlog.md"
+    backlog.write_text("unchanged\n", encoding="utf-8")
+
+    def fail_render(items: list[ProjectItem]) -> str:
+        pytest.fail("render_backlog must not run for invalid state")
+
+    monkeypatch.setattr(project_state, "render_backlog", fail_render)
+
+    assert run("render", tmp_path) == 1
+
+    assert "課題 ID が重複しています: SL-001" in capsys.readouterr().out
+    assert backlog.read_text(encoding="utf-8") == "unchanged\n"
+
+
+def test_main_rejects_unknown_command_with_argparse_exit_two(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["unknown", "--root", str(tmp_path)])
+
+    assert exc_info.value.code == 2
+    assert "invalid choice: 'unknown'" in capsys.readouterr().err

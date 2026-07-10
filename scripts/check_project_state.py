@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import argparse
 import errno
 import os
 import re
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -332,6 +334,22 @@ def _graph_index(items: list[ProjectItem]) -> tuple[dict[str, ProjectItem], set[
     return by_id, duplicate_ids
 
 
+def eligible_items(items: list[ProjectItem]) -> list[ProjectItem]:
+    by_id, _ = _graph_index(items)
+    return sorted(
+        (
+            item
+            for item in by_id.values()
+            if item.status == "ready"
+            and all(
+                dep in by_id and by_id[dep].status == "done"
+                for dep in item.depends_on
+            )
+        ),
+        key=lambda item: (PRIORITY_ORDER[item.priority], item.milestone, item.id),
+    )
+
+
 def _normalized_parts(value: str) -> tuple[str, ...]:
     normalized = Path(value).as_posix().strip("/")
     if normalized == ".":
@@ -484,3 +502,77 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
             )
         )
     return issues
+
+
+def _print_issues(issues: list[ProjectIssue], root: Path) -> None:
+    grouped: dict[Path, list[str]] = {}
+    for issue in issues:
+        grouped.setdefault(issue.path, []).append(issue.message)
+    for path in sorted(grouped):
+        try:
+            label = path.relative_to(root)
+        except ValueError:
+            label = path
+        print(f"{label}:")
+        for message in grouped[path]:
+            print(f"  - {message}")
+
+
+def run(command: str, root: Path) -> int:
+    project = root / "docs" / "project"
+    items, issues = load_items(project / "items")
+    milestones, milestone_issues = load_milestones(project / "roadmap.md")
+    issues.extend(milestone_issues)
+    issues.extend(validate_milestones(items, milestones))
+    issues.extend(validate_items(items))
+    issues.extend(validate_parallel_work(items))
+    if issues:
+        _print_issues(issues, root)
+        return 1
+
+    if command == "check":
+        issues.extend(
+            validate_backlog(project / "backlog.md", render_backlog(items))
+        )
+        if issues:
+            _print_issues(issues, root)
+            return 1
+    elif command == "render":
+        backlog = project / "backlog.md"
+        write_backlog(backlog, render_backlog(items))
+        print(f"生成しました: {backlog}")
+    elif command == "next":
+        by_id, _ = _graph_index(items)
+        active = sorted(
+            (item for item in by_id.values() if item.status == "in_progress"),
+            key=lambda item: (item.id, item.path.as_posix()),
+        )
+        for item in eligible_items(items):
+            conflicts = [
+                other.id
+                for other in active
+                if any(
+                    paths_conflict(left, right)
+                    for left in item.touches
+                    for right in other.touches
+                )
+            ]
+            suffix = (
+                f" / 競合: {', '.join(conflicts)}" if conflicts else " / 並行可能"
+            )
+            print(f"{item.priority} {item.id} {item.title}{suffix}")
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="SheetLens 改善プロジェクト状態を検証する"
+    )
+    parser.add_argument("command", choices=("check", "render", "next"))
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    args = parser.parse_args(argv)
+    return run(args.command, args.root.resolve())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
