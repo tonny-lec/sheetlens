@@ -8,3 +8,9 @@
 | [SL-002](items/SL-002-annotation-schema.md) | P1 | proposed | M1 | kind 別注釈スキーマと重複シート処理 | SL-001 | — |
 | [SL-003](items/SL-003-typed-element-ids.md) | P1 | proposed | M1 | 構造要素への型付き安定 ID 導入 | SL-001, SL-002 | — |
 | [SL-004](items/SL-004-compiled-semantics.md) | P1 | proposed | M1 | compiled 意味層 JSON と Markdown 無害化 | SL-002, SL-003 | — |
+| [SL-005](items/SL-005-defined-name-validations.md) | P1 | ready | M2 | 名前定義プルダウンの解決 | — | — |
+| [SL-006](items/SL-006-conditional-format-ir.md) | P1 | ready | M2 | 条件付き書式 IR の完全化 | — | — |
+| [SL-007](items/SL-007-cell-display-semantics.md) | P1 | ready | M2 | セルの型、表示形式、表示意味の保持 | — | — |
+| [SL-008](items/SL-008-artifact-presence.md) | P1 | ready | M2 | グラフ、図形、ピボット等の存在記録 | — | — |
+| [SL-009](items/SL-009-structural-range.md) | P2 | ready | M2 | structural range と非表示範囲の修正 | — | — |
+| [SL-010](items/SL-010-vml-buttons.md) | P2 | ready | M2 | VML ボタン抽出の XML 解析化 | — | — |
