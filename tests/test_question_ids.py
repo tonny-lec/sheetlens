@@ -203,6 +203,33 @@ def test_build_catalog_preserves_history_and_merges_aliases():
     assert merged.unresolved_legacy_ids == ["q-900", "q-901"]
 
 
+def test_build_catalog_replaces_normalization_only_raw_representation():
+    decomposed = questions._stable_question(
+        "list_validation",
+        "入力",
+        "A1 , B2",
+        "dropdown_semantics",
+        "Cafe\u0301  の   説明",
+    )
+    canonical = questions._stable_question(
+        "list_validation",
+        "入力",
+        "A1,B2",
+        "dropdown_semantics",
+        "Café の 説明",
+    )
+    assert decomposed.id == canonical.id
+    assert decomposed.identity_sha256 == canonical.identity_sha256
+    assert decomposed.content_sha256 == canonical.content_sha256
+    assert (decomposed.target, decomposed.text) != (canonical.target, canonical.text)
+    previous = build_catalog("11" * 32, _question_set(decomposed))
+
+    merged = build_catalog("22" * 32, _question_set(canonical), previous=previous)
+
+    assert merged.questions[canonical.id].target == canonical.target
+    assert merged.questions[canonical.id].text == canonical.text
+
+
 def test_build_catalog_rejects_previous_alias_with_different_target():
     old, current = _changed_question_pair()
     previous = build_catalog("11" * 32, _question_set(old), legacy_aliases={"q-001": old.id})
@@ -342,6 +369,11 @@ def test_record_unresolved_legacy_ids_returns_sorted_validated_copy():
     assert updated.unresolved_legacy_ids == ["q-1000", "q-900", "q-999"]
     assert updated.legacy_aliases == original_aliases
     assert catalog.unresolved_legacy_ids == ["q-900"]
+
+
+def test_record_unresolved_legacy_ids_rejects_invalid_iterable_values():
+    with pytest.raises(QuestionCatalogError, match="unresolved_legacy_ids"):
+        record_unresolved_legacy_ids(_catalog_fixture(), [None])
 
 
 def test_catalog_models_forbid_unknown_fields():

@@ -161,7 +161,10 @@ def build_catalog(
 
     for question_id, entry in current_questions.items():
         prior = historical_questions.get(question_id)
-        if prior is not None and prior != entry:
+        if prior is not None and (
+            prior.identity_sha256 != entry.identity_sha256
+            or prior.content_sha256 != entry.content_sha256
+        ):
             raise QuestionCatalogError(
                 f"historical question ID has different canonical content: {question_id}"
             )
@@ -301,10 +304,15 @@ def record_unresolved_legacy_ids(
     question_ids: Iterable[str],
 ) -> QuestionIdCatalog:
     _validate_catalog(catalog)
-    updated = catalog.model_copy(
-        update={
-            "unresolved_legacy_ids": sorted(set(catalog.unresolved_legacy_ids).union(question_ids))
-        }
-    )
+    payload = catalog.model_dump()
+    payload["unresolved_legacy_ids"] = [*catalog.unresolved_legacy_ids, *question_ids]
+    try:
+        candidate = QuestionIdCatalog.model_validate(payload)
+    except ValidationError as exc:
+        raise QuestionCatalogError(f"invalid unresolved_legacy_ids: {exc}") from exc
+
+    payload = candidate.model_dump()
+    payload["unresolved_legacy_ids"] = sorted(set(candidate.unresolved_legacy_ids))
+    updated = QuestionIdCatalog.model_validate(payload)
     _validate_catalog(updated)
     return updated
