@@ -1,7 +1,7 @@
 ---
 id: SL-005
 title: 名前定義プルダウンの解決
-status: in_progress
+status: done
 priority: P1
 type: defect
 milestone: M2
@@ -10,7 +10,7 @@ touches:
   - src/sheetlens/reader/features.py
   - src/sheetlens/reader/workbook.py
   - tests/test_features.py
-owner: codex
+owner: null
 ---
 
 # SL-005 名前定義プルダウンの解決
@@ -25,9 +25,9 @@ owner: codex
 
 ## 受け入れ条件
 
-- [ ] workbook scope と sheet-local scope、引用シート名を解決する。
-- [ ] 未解決名、INDIRECT、OFFSET は gap にする。
-- [ ] 各ケースのテストを追加する。
+- [x] workbook scope と sheet-local scope、引用シート名を解決する。
+- [x] 未解決名、INDIRECT、OFFSET は gap にする。
+- [x] 各ケースのテストを追加する。
 
 ## 対象外
 
@@ -43,4 +43,8 @@ owner: codex
 
 ## 完了証拠
 
-完了時に検証コマンド、結果、レビュー結果を記録する。
+- focused: `uv run pytest tests/test_features.py -q` — `23 passed in 0.47s`
+- full: `uv run pytest -q` — `374 passed in 1.90s`
+- lint: `uv run ruff check .` — `All checks passed!`
+- project state: `uv run python scripts/check_project_state.py check` — exit 0
+- final whole-branch review: `Ready to merge: Yes`、Critical / Important / Minor すべてなし
