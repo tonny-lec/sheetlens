@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from openpyxl.utils.cell import range_boundaries, range_to_tuple
+from openpyxl.utils.cell import SHEETRANGE_RE, range_boundaries
 from openpyxl.xml.constants import MAX_COLUMN, MAX_ROW
 
 from sheetlens.model import ir
@@ -28,11 +28,43 @@ def _formula_source(formula: str) -> str:
     return source
 
 
+def _unsupported_function_reason(source: str) -> str | None:
+    upper = source.lstrip().upper()
+    if upper.startswith("INDIRECT("):
+        return "unsupported_indirect"
+    if upper.startswith("OFFSET("):
+        return "unsupported_offset"
+    return None
+
+
+def _is_defined_name_candidate(source: str) -> bool:
+    if not source or not (source[0].isalpha() or source[0] in "_\\"):
+        return False
+    return all(char.isalnum() or char in "._\\" for char in source[1:])
+
+
+def _format_validation_gap(
+    sheet: str,
+    ranges: list[str],
+    formula1: str,
+    reason: str,
+) -> str:
+    sorted_ranges = ", ".join(sorted(ranges))
+    return (
+        f"{sheet}: 入力規則 {sorted_ranges} の選択肢を解決できません "
+        f"(formula1={formula1!r}; reason={reason})"
+    )
+
+
 def _parse_static_range(source: str, default_sheet: str | None) -> _RangeTarget | None:
     try:
         if "!" in source:
-            sheet, bounds = range_to_tuple(source)
+            match = SHEETRANGE_RE.fullmatch(source)
+            if match is None:
+                return None
+            sheet = match.group("quoted") or match.group("notquoted")
             sheet = sheet.replace("''", "'")
+            bounds = range_boundaries(match.group("cells"))
         else:
             if default_sheet is None:
                 return None
@@ -83,10 +115,20 @@ def _find_defined_name(mapping, name: str):
 
 def _resolve_definition(wb_v, definition, *, default_sheet: str | None) -> _ListResolution:
     source = _formula_source(definition.attr_text or "")
+    function_reason = _unsupported_function_reason(source)
+    if function_reason is not None:
+        return _ListResolution([], function_reason)
     target = _parse_static_range(source, default_sheet)
-    if target is None:
+    if target is not None:
+        return _read_range(wb_v, target)
+    if "," in source:
         return _ListResolution([], "unsupported_reference")
-    return _read_range(wb_v, target)
+    reason = (
+        "invalid_range"
+        if "!" in source or "#REF!" in source
+        else "unsupported_reference"
+    )
+    return _ListResolution([], reason)
 
 
 def _resolve_list(wb_v, current_sheet: str, formula: str) -> _ListResolution:
@@ -97,6 +139,16 @@ def _resolve_list(wb_v, current_sheet: str, formula: str) -> _ListResolution:
     target = _parse_static_range(source, current_sheet)
     if target is not None:
         return _read_range(wb_v, target)
+
+    function_reason = _unsupported_function_reason(source)
+    if function_reason is not None:
+        return _ListResolution([], function_reason)
+    if "," in source:
+        return _ListResolution([], "unsupported_reference")
+    if "!" in source or "#REF!" in source:
+        return _ListResolution([], "invalid_range")
+    if not _is_defined_name_candidate(source):
+        return _ListResolution([], "unsupported_reference")
 
     if current_sheet not in wb_v.sheetnames:
         return _ListResolution([], "sheet_not_found")
@@ -122,19 +174,36 @@ def _resolve_list(wb_v, current_sheet: str, formula: str) -> _ListResolution:
     return _resolve_definition(wb_v, workbook_definition, default_sheet=None)
 
 
-def read_validations(ws_f, wb_v) -> list[ir.ValidationRule]:
+def read_validations(
+    ws_f,
+    wb_v,
+    *,
+    extraction_gaps: list[str] | None = None,
+) -> list[ir.ValidationRule]:
+    gap_sink = [] if extraction_gaps is None else extraction_gaps
     rules: list[ir.ValidationRule] = []
     for dv in ws_f.data_validations.dataValidation:
         f1 = dv.formula1
+        ranges = [str(r) for r in dv.sqref.ranges]
         choices: list[str] = []
         if dv.type == "list" and f1:
             if f1.startswith('"'):
                 choices = [s.strip() for s in f1.strip('"').split(",")]
             else:
-                choices = _resolve_list(wb_v, ws_f.title, f1).choices
+                resolution = _resolve_list(wb_v, ws_f.title, f1)
+                choices = resolution.choices
+                if resolution.reason is not None:
+                    gap_sink.append(
+                        _format_validation_gap(
+                            ws_f.title,
+                            ranges,
+                            f1,
+                            resolution.reason,
+                        )
+                    )
         rules.append(
             ir.ValidationRule(
-                ranges=[str(r) for r in dv.sqref.ranges],
+                ranges=ranges,
                 type=dv.type or "unknown",
                 formula1=f1,
                 choices=choices,

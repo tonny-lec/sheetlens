@@ -54,7 +54,11 @@ def read_workbook(path: Path) -> ir.Workbook:
                 else:
                     cells.append(ir.Cell(ref=c.coordinate, value=_coerce(c.value)))
         try:
-            validations = read_validations(ws_f, wb_v)
+            validations = read_validations(
+                ws_f,
+                wb_v,
+                extraction_gaps=gaps,
+            )
         except Exception as e:  # noqa: BLE001 — 欠落は gap として記録して継続
             validations = []
             gaps.append(f"{ws_f.title}: 入力規則の抽出に失敗 ({e})")
