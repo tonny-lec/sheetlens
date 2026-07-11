@@ -5,6 +5,8 @@ import pytest
 from typer.testing import CliRunner
 
 from sheetlens.cli import app
+from sheetlens.detectors.questions import generate_question_set
+from sheetlens.detectors.regions import Region
 from sheetlens.model import ir
 from sheetlens.pipeline import analyze
 from sheetlens.question_ids import QuestionIdCatalog, build_catalog, save_catalog
@@ -185,6 +187,44 @@ def test_check_rejects_catalog_source_mismatch_without_writes(make_xlsx):
 
     assert result.exit_code == 1
     assert "質問 ID エラー:" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_check_rejects_pre_split_input_catalog_without_silently_losing_answer(make_xlsx):
+    def build(wb):
+        ws = wb.active
+        ws.title = "入力"
+        for column, value in zip("ABCDE", ("左項目", "左値", "注記", "右項目", "右値"), strict=True):
+            ws[f"{column}1"] = value
+        for row in range(2, 4):
+            ws[f"A{row}"] = f"左{row}"
+            ws[f"B{row}"] = row
+            ws[f"D{row}"] = f"右{row}"
+            ws[f"E{row}"] = row
+
+    src = make_xlsx(build, name="split-input-target.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    project = src.parent / "split-input-target.sheetlens"
+    raw = ir.Workbook.model_validate_json(
+        (project / "structure" / "raw.json").read_text(encoding="utf-8")
+    )
+    old_questions = generate_question_set(
+        raw,
+        {"入力": [Region(range="A1:E3", kind="table")]},
+        {"入力": []},
+    )
+    old_catalog = build_catalog(raw.sha256, old_questions)
+    save_catalog(project / "question-ids.json", old_catalog)
+    old_input_id = next(
+        question.id for question in old_questions.questions if question.rule == "input_region"
+    )
+    _write_answer(project, old_input_id)
+
+    result = _check_read_only(project)
+
+    assert result.exit_code == 1
+    assert "質問 ID エラー:" in result.output
+    assert "current_ids differ" in result.output
     assert "Traceback" not in result.output
 
 

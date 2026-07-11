@@ -8,6 +8,7 @@ from openpyxl.cell.cell import Cell as OpenpyxlCell
 from openpyxl.styles import numbers
 
 from sheetlens.model import ir
+from sheetlens.reader.artifacts import extract_sheet_artifacts
 from sheetlens.reader.buttons import extract_buttons
 from sheetlens.reader.features import read_conditional_formats, read_validations
 from sheetlens.reader.vba import extract_vba
@@ -155,6 +156,8 @@ def read_workbook(path: Path) -> ir.Workbook:
     wb_f = openpyxl.load_workbook(path, data_only=False, keep_vba=keep_vba)
     wb_v = openpyxl.load_workbook(path, data_only=True)
     gaps: list[str] = []
+    artifacts_by_sheet, artifact_gaps = extract_sheet_artifacts(path)
+    gaps.extend(artifact_gaps)
     sheets: list[ir.Sheet] = []
     for ws_f in wb_f.worksheets:
         ws_v = wb_v[ws_f.title]
@@ -198,6 +201,7 @@ def read_workbook(path: Path) -> ir.Workbook:
                 merged=[str(r) for r in ws_f.merged_cells.ranges],
                 validations=validations,
                 conditional_formats=cformats,
+                artifacts=artifacts_by_sheet.get(ws_f.title, []),
             )
         )
     defined = {}

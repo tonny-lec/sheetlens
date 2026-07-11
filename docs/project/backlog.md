@@ -11,8 +11,8 @@
 | [SL-005](items/SL-005-defined-name-validations.md) | P1 | done | M2 | 名前定義プルダウンの解決 | — | — |
 | [SL-006](items/SL-006-conditional-format-ir.md) | P1 | done | M2 | 条件付き書式 IR の完全化 | — | — |
 | [SL-007](items/SL-007-cell-display-semantics.md) | P1 | done | M2 | セルの型、表示形式、表示意味の保持 | — | — |
-| [SL-008](items/SL-008-artifact-presence.md) | P1 | ready | M2 | グラフ、図形、ピボット等の存在記録 | — | — |
-| [SL-011](items/SL-011-input-formula-regions.md) | P1 | ready | M3 | 手入力列と数式列を分離した質問生成 | — | — |
+| [SL-008](items/SL-008-artifact-presence.md) | P1 | done | M2 | グラフ、図形、ピボット等の存在記録 | — | — |
+| [SL-011](items/SL-011-input-formula-regions.md) | P1 | done | M3 | 手入力列と数式列を分離した質問生成 | — | — |
 | [SL-014](items/SL-014-real-xlsm-windows.md) | P1 | ready | M4 | 実 xlsm の Windows E2E 検証 | — | — |
 | [SL-015](items/SL-015-reproducible-evaluation.md) | P1 | proposed | M4 | 再現可能な A/B 評価基盤 | SL-001, SL-003 | — |
 | [SL-009](items/SL-009-structural-range.md) | P2 | ready | M2 | structural range と非表示範囲の修正 | — | — |

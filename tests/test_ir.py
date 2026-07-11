@@ -1,4 +1,44 @@
+import pytest
+from pydantic import ValidationError
+
 from sheetlens.model import ir
+
+
+def test_sheet_artifacts_roundtrip_normalize_parts_and_legacy_input():
+    artifact = ir.SheetArtifact(
+        type="image",
+        count=2,
+        ooxml_parts=[
+            "xl/media/image2.png",
+            "xl/media/image1.png",
+            "xl/media/image2.png",
+        ],
+    )
+    wb = ir.Workbook(
+        source_file="artifacts.xlsx",
+        sha256="00" * 32,
+        sheets=[ir.Sheet(name="Sheet1", artifacts=[artifact])],
+    )
+
+    restored = ir.Workbook.model_validate_json(wb.model_dump_json())
+    legacy = ir.Sheet.model_validate({"name": "Legacy"})
+
+    assert restored == wb
+    assert restored.sheets[0].artifacts == [
+        ir.SheetArtifact(
+            type="image",
+            count=2,
+            ooxml_parts=["xl/media/image1.png", "xl/media/image2.png"],
+        )
+    ]
+    assert legacy.artifacts == []
+
+
+def test_sheet_artifact_rejects_unknown_type_and_non_positive_count():
+    with pytest.raises(ValidationError):
+        ir.SheetArtifact(type="table", count=1)
+    with pytest.raises(ValidationError):
+        ir.SheetArtifact(type="chart", count=0)
 
 
 def test_cell_display_metadata_roundtrips_and_legacy_input_remains_valid():

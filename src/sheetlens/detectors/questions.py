@@ -3,11 +3,10 @@ import json
 import re
 import unicodedata
 
-from openpyxl.utils import coordinate_to_tuple, range_boundaries
 from pydantic import BaseModel
 
 from sheetlens.detectors.formula_patterns import FormulaPattern
-from sheetlens.detectors.regions import Region
+from sheetlens.detectors.regions import Region, input_ranges
 from sheetlens.model import ir
 
 _EVENT_RE = re.compile(r"^\s*(?:Public\s+|Private\s+)?Sub\s+((?:Worksheet_|Workbook_)\w+)", re.M)
@@ -80,17 +79,6 @@ def _stable_question(
     )
 
 
-def _contains_formula(sheet: ir.Sheet, rng: str) -> bool:
-    min_c, min_r, max_c, max_r = range_boundaries(rng)
-    for cell in sheet.cells:
-        if cell.formula is None:
-            continue
-        r, c = coordinate_to_tuple(cell.ref)
-        if min_r <= r <= max_r and min_c <= c <= max_c:
-            return True
-    return False
-
-
 def generate_question_set(
     wb: ir.Workbook,
     regions: dict[str, list[Region]],
@@ -133,9 +121,9 @@ def generate_question_set(
             add("hidden_columns", sheet.name, ",".join(sheet.hidden_cols), "hidden_reason",
                 f"非表示の列（{', '.join(sheet.hidden_cols)}）には何が入っており、なぜ隠されていますか？")
         for region in regions.get(sheet.name, []):
-            if not _contains_formula(sheet, region.range):
-                add("input_region", sheet.name, region.range, "input_source",
-                    f"範囲 {region.range} のデータは誰が・いつ・何を見て入力しますか？"
+            for target in input_ranges(sheet, region):
+                add("input_region", sheet.name, target, "input_source",
+                    f"範囲 {target} のデータは誰が・いつ・何を見て入力しますか？"
                     "（手入力 / 他システムからの貼り付け / VBA 自動入力）")
         for v in sheet.validations:
             if v.type != "list":

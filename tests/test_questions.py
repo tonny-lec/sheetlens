@@ -224,3 +224,88 @@ def test_truncated_digest_collision_raises(monkeypatch):
             {"入力": [], "出力": []},
             {"入力": [], "出力": []},
         )
+
+
+def _input_targets(sheet, region):
+    wb = ir.Workbook(source_file="a.xlsx", sha256="00" * 32, sheets=[sheet])
+    return [
+        question.target
+        for question in questions.generate_questions(
+            wb,
+            {sheet.name: [region]},
+            {sheet.name: []},
+        )
+        if question.category == "input_source"
+    ]
+
+
+def test_input_questions_keep_manual_columns_and_exclude_formula_column():
+    cells = [
+        ir.Cell(ref="A1", value="品名"),
+        ir.Cell(ref="B1", value="数量"),
+        ir.Cell(ref="C1", value="金額"),
+        ir.Cell(ref="A2", value="鉛筆"),
+        ir.Cell(ref="B2", value=2),
+        ir.Cell(ref="C2", formula="=B2*100"),
+        ir.Cell(ref="A3", value="消しゴム"),
+        ir.Cell(ref="B3", value=1),
+        ir.Cell(ref="C3", formula="=B3*80"),
+    ]
+    sheet = ir.Sheet(name="入力", cells=cells)
+
+    assert _input_targets(sheet, Region(range="A1:C3", kind="table")) == ["A1:B3"]
+
+
+def test_input_questions_keep_manual_bands_on_both_sides_of_formulas():
+    cells = [
+        ir.Cell(ref=f"{column}1", value=label)
+        for column, label in zip("ABC", ("入力1", "計算", "入力2"), strict=True)
+    ]
+    for row in range(2, 4):
+        cells += [
+            ir.Cell(ref=f"A{row}", value=f"左{row}"),
+            ir.Cell(ref=f"B{row}", formula=f"=A{row}"),
+            ir.Cell(ref=f"C{row}", value=f"右{row}"),
+        ]
+    sheet = ir.Sheet(name="入力", cells=cells)
+
+    assert _input_targets(sheet, Region(range="A1:C3", kind="table")) == [
+        "A1:A3",
+        "C1:C3",
+    ]
+
+
+def test_input_questions_split_manual_runs_in_a_mixed_column():
+    sheet = ir.Sheet(
+        name="入力",
+        cells=[
+            ir.Cell(ref="A1", value="入力または計算"),
+            ir.Cell(ref="A2", value="手入力1"),
+            ir.Cell(ref="A3", formula="=B3"),
+            ir.Cell(ref="A4", value="手入力2"),
+        ],
+    )
+
+    assert _input_targets(sheet, Region(range="A1:A4", kind="table")) == [
+        "A2:A2",
+        "A4:A4",
+    ]
+
+
+def test_formula_only_region_does_not_infer_blank_columns_as_inputs():
+    sheet = ir.Sheet(name="入力", cells=[ir.Cell(ref="C2", formula="=A2+B2")])
+
+    assert _input_targets(sheet, Region(range="A1:E3", kind="block")) == []
+
+
+def test_formula_outside_region_does_not_change_formula_free_target():
+    sheet = ir.Sheet(
+        name="入力",
+        cells=[
+            ir.Cell(ref="A1", value="見出し"),
+            ir.Cell(ref="A2", value="入力"),
+            ir.Cell(ref="C2", formula="=A2"),
+        ],
+    )
+
+    assert _input_targets(sheet, Region(range="A1:B3", kind="block")) == ["A1:B3"]

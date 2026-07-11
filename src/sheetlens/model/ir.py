@@ -130,6 +130,17 @@ class ButtonLink(BaseModel):
     macro: str
 
 
+class SheetArtifact(BaseModel):
+    type: Literal["chart", "image", "shape", "pivot"]
+    count: int = Field(gt=0)
+    ooxml_parts: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_ooxml_parts(self) -> SheetArtifact:
+        self.ooxml_parts = sorted(set(self.ooxml_parts))
+        return self
+
+
 class Sheet(BaseModel):
     name: str
     used_range: str | None = None
@@ -141,6 +152,7 @@ class Sheet(BaseModel):
     merged: list[str] = Field(default_factory=list)
     validations: list[ValidationRule] = Field(default_factory=list)
     conditional_formats: list[ConditionalFormat] = Field(default_factory=list)
+    artifacts: list[SheetArtifact] = Field(default_factory=list)
 
 
 class Workbook(BaseModel):

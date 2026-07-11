@@ -49,7 +49,13 @@ def build_manifest(wb: ir.Workbook) -> dict:
         "source_file": wb.source_file,
         "sha256": wb.sha256,
         "sheets": [
-            {"name": s.name, "hidden": s.hidden, "used_range": s.used_range} for s in wb.sheets
+            {
+                "name": s.name,
+                "hidden": s.hidden,
+                "used_range": s.used_range,
+                "artifacts": [artifact.model_dump() for artifact in s.artifacts],
+            }
+            for s in wb.sheets
         ],
         "dependencies": sheet_dependencies(wb),
         "external_refs": sorted(set(wb.external_refs) | set(external_references(wb))),
