@@ -2,6 +2,8 @@ import json
 import shutil
 
 import openpyxl
+from openpyxl.formatting.rule import CellIsRule, ColorScaleRule
+from openpyxl.styles import PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 from typer.testing import CliRunner
 
@@ -27,6 +29,23 @@ def _build(wb):
     dv = DataValidation(type="list", formula1='"通常,特急"')
     dv.add("C5")
     ws.add_data_validation(dv)
+    ws.conditional_formatting.add(
+        "C11:C13",
+        CellIsRule(
+            operator="between",
+            formula=["1", "10"],
+            fill=PatternFill(fill_type="solid", fgColor="FFFF00"),
+        ),
+    )
+    ws.conditional_formatting.add(
+        "E11:E13",
+        ColorScaleRule(
+            start_type="min",
+            start_color="FFFF0000",
+            end_type="max",
+            end_color="FF00FF00",
+        ),
+    )
     master = wb.create_sheet("単価マスタ")
     master["A1"] = "品名"
 
@@ -83,6 +102,25 @@ def test_extract_generates_project(make_xlsx):
     ):
         assert (proj / rel).exists(), rel
     raw = json.loads((proj / "structure/raw.json").read_text(encoding="utf-8"))
+    conditional_formats = raw["sheets"][0]["conditional_formats"]
+    between = conditional_formats[0]
+    assert between["formulas"] == ["1", "10"]
+    assert "formula" not in between
+    assert between["dxf"] is not None
+    assert between["dxf"]["tag"].endswith("dxf")
+    assert any(child["tag"].endswith("fill") for child in between["dxf"]["children"])
+    color_scale = conditional_formats[1]
+    assert color_scale["color_scale"] == {
+        "conditions": [
+            {"type": "min", "value": None, "gte": None},
+            {"type": "max", "value": None, "gte": None},
+        ],
+        "colors": [
+            {"type": "rgb", "value": "FFFF0000", "tint": 0.0},
+            {"type": "rgb", "value": "FF00FF00", "tint": 0.0},
+        ],
+    }
+    assert "formula" not in color_scale
     catalog = json.loads((proj / "question-ids.json").read_text(encoding="utf-8"))
     assert catalog["schema_version"] == 1
     assert catalog["generator_version"] == 2
