@@ -67,6 +67,79 @@ def test_grid_escapes_newlines_and_pipes():
     assert grid_lines == ["| 1 | 行1 行2 | a\\|b |"]
 
 
+def test_display_semantics_are_listed_without_reformatting_grid_values():
+    sheet = ir.Sheet(
+        name="s",
+        used_range="A1:G1",
+        cells=[
+            ir.Cell(
+                ref="A1",
+                value=0.125,
+                value_type="number",
+                number_format="0.00%",
+                display_semantics="percentage",
+            ),
+            ir.Cell(
+                ref="B1",
+                value=1234.5,
+                value_type="number",
+                number_format="¥#,##0.00",
+                display_semantics="currency",
+            ),
+            ir.Cell(
+                ref="C1",
+                value="2026-07-11 00:00:00",
+                value_type="date",
+                number_format="yyyy-mm-dd",
+                display_semantics="date",
+            ),
+            ir.Cell(
+                ref="D1",
+                value=123,
+                value_type="number",
+                number_format="00000",
+                display_semantics="leading_zero",
+            ),
+            ir.Cell(
+                ref="E1",
+                value="#DIV/0!",
+                value_type="error",
+                number_format="`error`",
+                display_semantics="error",
+            ),
+            ir.Cell(
+                ref="F1",
+                value="14:30:05",
+                value_type="time",
+                number_format="hh:mm:ss",
+                display_semantics="time",
+            ),
+            ir.Cell(
+                ref="G1",
+                value=1,
+                value_type="number",
+                number_format=" 0 ",
+                display_semantics="leading_zero",
+            ),
+        ],
+    )
+
+    md = render_sheet_md(sheet, [], [], [], [])
+
+    assert (
+        "| 1 | 0.125 | 1234.5 | 2026-07-11 00:00:00 | 123 | #DIV/0! | 14:30:05 | 1 |"
+        in md
+    )
+    assert "## セル表示情報" in md
+    assert "- A1: percentage / value_type=number / number_format=`0.00%`" in md
+    assert "- B1: currency / value_type=number / number_format=`¥#,##0.00`" in md
+    assert "- C1: date / value_type=date / number_format=`yyyy-mm-dd`" in md
+    assert "- D1: leading_zero / value_type=number / number_format=`00000`" in md
+    assert "- E1: error / value_type=error / number_format=`` `error` ``" in md
+    assert "- F1: time / value_type=time / number_format=`hh:mm:ss`" in md
+    assert "- G1: leading_zero / value_type=number / number_format=`  0  `" in md
+
+
 def test_validation_with_multiple_ranges_and_empty_ranges_safe():
     ann = SheetAnnotations(
         sheet="s",

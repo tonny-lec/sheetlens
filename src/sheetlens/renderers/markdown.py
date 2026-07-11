@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+import re
 
 from openpyxl.utils import get_column_letter, range_boundaries
 
@@ -38,6 +39,32 @@ def _ann_lines(ann: SheetAnnotations | None, rng: str) -> list[str]:
 
 def _cell_text(text: str) -> str:
     return text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ").replace("|", "\\|")
+
+
+def _inline_code(text: str) -> str:
+    text = text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    longest_run = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    delimiter = "`" * (longest_run + 1)
+    needs_padding = (
+        text.startswith(("`", " ")) or text.endswith(("`", " "))
+    ) and not text.isspace()
+    padding = " " if needs_padding else ""
+    return f"{delimiter}{padding}{text}{padding}{delimiter}"
+
+
+def _display_semantics_lines(sheet: ir.Sheet) -> list[str]:
+    semantic_cells = [cell for cell in sheet.cells if cell.display_semantics is not None]
+    if not semantic_cells:
+        return []
+    lines = ["## セル表示情報", ""]
+    for cell in semantic_cells:
+        value_type = cell.value_type or "unknown"
+        number_format = _inline_code(cell.number_format or "General")
+        lines.append(
+            f"- {cell.ref}: {cell.display_semantics} / value_type={value_type} / "
+            f"number_format={number_format}"
+        )
+    return lines + [""]
 
 
 def _conditional_value_text(value: ir.ConditionalValue) -> str:
@@ -168,6 +195,7 @@ def render_sheet_md(
                 lines.append(f"> 💬 業務上の意味{label}: {t.note or t.value or ''}")
     lines += ["", "## レイアウトマップ", ""]
     lines += _grid(sheet)
+    lines += _display_semantics_lines(sheet)
     if regions:
         lines += ["## 領域", ""]
         for i, region in enumerate(regions, 1):

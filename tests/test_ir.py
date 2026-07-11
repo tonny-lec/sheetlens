@@ -1,6 +1,46 @@
 from sheetlens.model import ir
 
 
+def test_cell_display_metadata_roundtrips_and_legacy_input_remains_valid():
+    cells = [
+        ir.Cell(
+            ref="A1",
+            value=0.125,
+            value_type="number",
+            number_format="0.00%",
+            display_semantics="percentage",
+        ),
+        ir.Cell(
+            ref="A2",
+            value="#DIV/0!",
+            value_type="error",
+            number_format="General",
+            display_semantics="error",
+        ),
+    ]
+    wb = ir.Workbook(
+        source_file="display.xlsx",
+        sha256="00" * 32,
+        sheets=[ir.Sheet(name="Sheet1", cells=cells)],
+    )
+
+    restored = ir.Workbook.model_validate_json(wb.model_dump_json())
+    legacy = ir.Cell.model_validate({"ref": "B1", "value": 1})
+
+    assert restored == wb
+    assert restored.sheets[0].cells[0].model_dump() == {
+        "ref": "A1",
+        "value": 0.125,
+        "formula": None,
+        "value_type": "number",
+        "number_format": "0.00%",
+        "display_semantics": "percentage",
+    }
+    assert legacy.value_type is None
+    assert legacy.number_format is None
+    assert legacy.display_semantics is None
+
+
 def test_conditional_format_migrates_legacy_formula_input():
     constructed = ir.ConditionalFormat(range="A1", rule_type="cellIs", formula="0")
     validated = ir.ConditionalFormat.model_validate(

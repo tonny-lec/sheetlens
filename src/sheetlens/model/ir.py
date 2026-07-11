@@ -1,16 +1,39 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 Primitive = str | int | float | bool | None
+CellValueType = Literal[
+    "string",
+    "number",
+    "boolean",
+    "date",
+    "time",
+    "datetime",
+    "duration",
+    "error",
+]
+CellDisplaySemantics = Literal[
+    "percentage",
+    "currency",
+    "date",
+    "time",
+    "datetime",
+    "duration",
+    "leading_zero",
+    "error",
+]
 
 
 class Cell(BaseModel):
     ref: str
     value: Primitive = None
     formula: str | None = None
+    value_type: CellValueType | None = None
+    number_format: str | None = None
+    display_semantics: CellDisplaySemantics | None = None
 
 
 class ValidationRule(BaseModel):
