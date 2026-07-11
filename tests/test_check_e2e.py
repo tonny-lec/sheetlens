@@ -292,6 +292,20 @@ def test_check_rejects_non_project(tmp_path):
     assert "raw.json" in result.output
 
 
+def test_check_formats_invalid_unicode_raw_as_recoverable_data_error(make_xlsx):
+    project = _extract(make_xlsx)
+    raw_path = project / "structure" / "raw.json"
+    raw_path.write_bytes(b"\xff\xfe")
+
+    result = runner.invoke(app, ["check", str(project)])
+
+    assert result.exit_code == 1
+    assert "データエラー" in result.output
+    assert str(raw_path) in result.output
+    assert "extractを再実行" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_extract_rejects_missing_file(tmp_path):
     result = runner.invoke(app, ["extract", str(tmp_path / "nai.xlsx")])
     assert result.exit_code != 0

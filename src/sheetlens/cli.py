@@ -1,14 +1,34 @@
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 from zipfile import BadZipFile
 
 from openpyxl.utils.exceptions import InvalidFileException
+from pydantic import ValidationError
 import typer
 
 if TYPE_CHECKING:
     from sheetlens.question_ids import AnswerResolution
 
 app = typer.Typer(help="業務 Excel を AI が誤読しない中間表現に変換する", no_args_is_help=True)
+
+
+def _operational_error(
+    exc: json.JSONDecodeError | ValidationError | UnicodeError | OSError,
+    *,
+    fallback: Path,
+    recovery: str,
+) -> None:
+    filename = getattr(exc, "filename", None)
+    path = Path(filename) if filename else fallback
+    if isinstance(exc, OSError):
+        kind = "I/Oエラー"
+        guidance = f"権限・空き容量・pathを確認し、{recovery}"
+    else:
+        kind = "データエラー"
+        guidance = f"ファイル内容を修復するか、{recovery}"
+    typer.echo(f"{kind}: {path}: {exc}。復旧方法: {guidance}")
+    raise typer.Exit(1) from exc
 
 
 def _print_question_resolution(
@@ -40,7 +60,12 @@ def extract(
 ) -> None:
     """xlsx/xlsm から構造層と questions.md を生成する。"""
     from sheetlens.detectors.questions import QuestionIdentityError
-    from sheetlens.pipeline import ExistingStructureError, extract_workbook
+    from sheetlens.pipeline import (
+        ExistingStructureError,
+        PostCommitCleanupError,
+        ProjectRecoveryError,
+        extract_workbook,
+    )
     from sheetlens.question_ids import QuestionCatalogError
 
     try:
@@ -51,9 +76,22 @@ def extract(
     except ExistingStructureError as e:
         typer.echo(str(e))
         raise typer.Exit(1) from e
+    except ProjectRecoveryError as e:
+        typer.echo(f"復旧エラー: {e}")
+        raise typer.Exit(1) from e
+    except PostCommitCleanupError as e:
+        typer.echo(f"警告（後処理）: {e}。backupを確認して手動で削除してください。")
+        typer.echo(f"生成しました: {e.project}")
+        return
     except (InvalidFileException, BadZipFile, KeyError) as e:
         typer.echo(f"エラー: {file} を読めません（破損またはパスワード保護の可能性）: {e}")
         raise typer.Exit(1) from e
+    except (json.JSONDecodeError, ValidationError, UnicodeError, OSError) as e:
+        _operational_error(
+            e,
+            fallback=out or file,
+            recovery="入力を確認してextractを再実行してください。",
+        )
     typer.echo(f"生成しました: {proj}")
 
 
@@ -77,6 +115,12 @@ def compile_cmd(project: Path) -> None:
     except (QuestionCatalogError, QuestionIdentityError) as e:
         typer.echo(f"質問 ID エラー: {e}")
         raise typer.Exit(1) from e
+    except (json.JSONDecodeError, ValidationError, UnicodeError, OSError) as e:
+        _operational_error(
+            e,
+            fallback=raw,
+            recovery="元のExcelからextractを再実行してください。",
+        )
     for warning in result.warnings:
         typer.echo(f"警告（孤立注釈）: {warning}")
     _print_question_resolution(
@@ -99,12 +143,18 @@ def check(project: Path) -> None:
     if not raw.exists():
         typer.echo(f"エラー: {project} は sheetlens プロジェクトではありません（structure/raw.json がありません）")
         raise typer.Exit(1)
-    wb = ir.Workbook.model_validate_json(raw.read_text(encoding="utf-8"))
     try:
+        wb = ir.Workbook.model_validate_json(raw.read_text(encoding="utf-8"))
         anns = load_annotations(project / "annotations")
     except AnnotationError as e:
         typer.echo(f"注釈エラー: {e}")
         raise typer.Exit(1) from e
+    except (json.JSONDecodeError, ValidationError, UnicodeError, OSError) as e:
+        _operational_error(
+            e,
+            fallback=raw,
+            recovery="元のExcelからextractを再実行してください。",
+        )
     try:
         analysis = analyze(wb)
         question_state = resolve_project_question_ids(
@@ -117,6 +167,12 @@ def check(project: Path) -> None:
     except (QuestionCatalogError, QuestionIdentityError) as e:
         typer.echo(f"質問 ID エラー: {e}")
         raise typer.Exit(1) from e
+    except (json.JSONDecodeError, ValidationError, UnicodeError, OSError) as e:
+        _operational_error(
+            e,
+            fallback=raw,
+            recovery="元のExcelからextractを再実行してください。",
+        )
     for o in find_orphans(wb, anns) + find_unwoven(wb, analysis, anns):
         typer.echo(f"警告（孤立注釈）: {o}")
     _print_question_resolution(

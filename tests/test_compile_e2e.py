@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from sheetlens.cli import app
@@ -180,3 +181,18 @@ def test_compile_rejects_broken_annotation(make_xlsx):
     result = runner.invoke(app, ["compile", str(proj)])
     assert result.exit_code == 1
     assert "bad.yaml" in result.output
+
+
+@pytest.mark.parametrize("raw_text", ["{", "{}"])
+def test_compile_formats_broken_raw_as_recoverable_data_error(make_xlsx, raw_text):
+    proj = _extract(make_xlsx)
+    raw_path = proj / "structure" / "raw.json"
+    raw_path.write_text(raw_text, encoding="utf-8")
+
+    result = runner.invoke(app, ["compile", str(proj)])
+
+    assert result.exit_code == 1
+    assert "データエラー" in result.output
+    assert str(raw_path) in result.output
+    assert "extractを再実行" in result.output
+    assert "Traceback" not in result.output

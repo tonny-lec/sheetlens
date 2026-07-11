@@ -1,14 +1,17 @@
 import json
 import shutil
+from pathlib import Path
 
 import openpyxl
 from openpyxl.formatting.rule import CellIsRule, ColorScaleRule
 from openpyxl.styles import PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
+import pytest
 from typer.testing import CliRunner
 
 from sheetlens.cli import app
 from sheetlens.model import ir
+import sheetlens.pipeline as pipeline
 from sheetlens.pipeline import analyze
 from sheetlens.question_ids import QuestionIdCatalog, resolve_answered_ids
 from sheetlens.renderers.markdown import render_questions_md
@@ -83,6 +86,14 @@ def _structure_bytes(proj):
         path.relative_to(structure).as_posix(): path.read_bytes()
         for path in structure.rglob("*")
         if path.is_file()
+    }
+
+
+def _project_bytes(proj):
+    return {
+        path.relative_to(proj).as_posix(): path.read_bytes()
+        for path in proj.rglob("*")
+        if path.is_file() and not path.is_symlink()
     }
 
 
@@ -334,9 +345,12 @@ def test_reextract_removes_stale_structure_files(make_xlsx):
     stale.write_text("stale", encoding="utf-8")
     keep = proj / "annotations" / "残す.yaml"
     keep.write_text("sheet: 見積入力\n", encoding="utf-8")
+    unknown = proj / "user-notes.txt"
+    unknown.write_bytes(b"keep unknown\x00")
     assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
     assert not stale.exists()
     assert keep.exists()
+    assert unknown.read_bytes() == b"keep unknown\x00"
 
 
 def test_extract_refuses_foreign_structure_dir(make_xlsx, tmp_path):
@@ -357,3 +371,173 @@ def test_extract_rejects_broken_file(tmp_path):
     result = runner.invoke(app, ["extract", str(bad)])
     assert result.exit_code == 1
     assert "読めません" in result.output
+
+
+@pytest.mark.parametrize("failure_point", ["write", "validate"])
+def test_reextract_staging_failure_preserves_old_project(
+    make_xlsx, monkeypatch, failure_point
+):
+    src = make_xlsx(_build, name=f"stage-{failure_point}.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / f"stage-{failure_point}.sheetlens"
+    annotation = proj / "annotations" / "keep.yaml"
+    annotation.write_bytes(b"keep: \xff\x00")
+    (proj / "unknown.txt").write_text("keep", encoding="utf-8")
+    before = _project_bytes(proj)
+
+    target = (
+        "_write_extracted_project"
+        if failure_point == "write"
+        else "_validate_staged_project"
+    )
+    original = getattr(pipeline, target)
+
+    def fail(*args, **kwargs):
+        original(*args, **kwargs)
+        raise OSError("injected staging failure")
+
+    monkeypatch.setattr(pipeline, target, fail)
+    result = runner.invoke(app, ["extract", str(src)])
+
+    assert result.exit_code == 1
+    assert "I/Oエラー" in result.output
+    assert _project_bytes(proj) == before
+    stage, backup, lock = pipeline._transaction_paths(proj)
+    assert not stage.exists() and not backup.exists() and not lock.exists()
+
+
+@pytest.mark.parametrize("failure_point", ["first", "second"])
+def test_reextract_rename_failure_rolls_back(
+    make_xlsx, monkeypatch, failure_point
+):
+    src = make_xlsx(_build, name=f"rename-{failure_point}.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / f"rename-{failure_point}.sheetlens"
+    before = _project_bytes(proj)
+    stage, backup, lock = pipeline._transaction_paths(proj)
+    original_replace = Path.replace
+
+    def fail_replace(self, target):
+        if (failure_point == "first" and self == proj) or (
+            failure_point == "second" and self == stage
+        ):
+            raise OSError(f"injected {failure_point} rename failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    result = runner.invoke(app, ["extract", str(src)])
+
+    assert result.exit_code == 1
+    assert "I/Oエラー" in result.output
+    assert _project_bytes(proj) == before
+    assert not stage.exists() and not backup.exists() and not lock.exists()
+
+
+def test_reextract_rollback_failure_preserves_recovery_paths(make_xlsx, monkeypatch):
+    src = make_xlsx(_build, name="rollback-failure.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / "rollback-failure.sheetlens"
+    stage, backup, lock = pipeline._transaction_paths(proj)
+    original_replace = Path.replace
+
+    def fail_replace(self, target):
+        if self in {stage, backup} and target == proj:
+            raise OSError("injected swap or rollback failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    result = runner.invoke(app, ["extract", str(src)])
+
+    assert result.exit_code == 1
+    assert "復旧エラー" in result.output
+    assert str(stage) in result.output and str(backup) in result.output
+    assert stage.exists() and backup.exists() and lock.exists()
+    assert not proj.exists()
+
+
+def test_reextract_cleanup_failure_reports_committed_project(make_xlsx, monkeypatch):
+    src = make_xlsx(_build, name="cleanup-failure.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / "cleanup-failure.sheetlens"
+    _insert_sheet_first(src, "新規")
+    stage, backup, lock = pipeline._transaction_paths(proj)
+    original_rmtree = shutil.rmtree
+
+    def fail_backup_cleanup(path, *args, **kwargs):
+        if Path(path) == backup:
+            raise OSError("injected cleanup failure")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(pipeline.shutil, "rmtree", fail_backup_cleanup)
+    result = runner.invoke(app, ["extract", str(src)])
+
+    assert result.exit_code == 0
+    assert "警告（後処理）" in result.output
+    assert "生成しました" in result.output
+    raw = ir.Workbook.model_validate_json(
+        (proj / "structure" / "raw.json").read_text(encoding="utf-8")
+    )
+    assert raw.sheets[0].name == "新規"
+    assert backup.exists() and not stage.exists() and not lock.exists()
+
+
+def test_new_project_final_rename_failure_leaves_no_partial_project(
+    make_xlsx, tmp_path, monkeypatch
+):
+    src = make_xlsx(_build, name="new-rename-failure.xlsx")
+    proj = tmp_path / "new-output.sheetlens"
+    stage, backup, lock = pipeline._transaction_paths(proj)
+    original_replace = Path.replace
+
+    def fail_replace(self, target):
+        if self == stage and target == proj:
+            raise OSError("injected new project rename failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    result = runner.invoke(app, ["extract", str(src), "--out", str(proj)])
+
+    assert result.exit_code == 1
+    assert "I/Oエラー" in result.output
+    assert not proj.exists() and not stage.exists() and not backup.exists() and not lock.exists()
+
+
+def test_extract_does_not_remove_existing_transaction_lock(make_xlsx):
+    src = make_xlsx(_build, name="locked.xlsx")
+    proj = src.parent / "locked.sheetlens"
+    _, _, lock = pipeline._transaction_paths(proj)
+    lock.write_text("pid=other\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["extract", str(src)])
+
+    assert result.exit_code == 1
+    assert str(lock) in result.output and "手動で復旧" in result.output
+    assert lock.read_text(encoding="utf-8") == "pid=other\n"
+    assert not proj.exists()
+
+
+def test_extract_rejects_stale_transaction_and_managed_symlink(make_xlsx):
+    src = make_xlsx(_build, name="transaction-safety.xlsx")
+    assert runner.invoke(app, ["extract", str(src)]).exit_code == 0
+    proj = src.parent / "transaction-safety.sheetlens"
+    before = _project_bytes(proj)
+    stage, backup, lock = pipeline._transaction_paths(proj)
+    stage.mkdir()
+
+    stale = runner.invoke(app, ["extract", str(src)])
+
+    assert stale.exit_code == 1
+    assert str(stage) in stale.output and "手動復旧" in stale.output
+    assert _project_bytes(proj) == before
+    assert stage.exists() and not backup.exists() and not lock.exists()
+
+    stage.rmdir()
+    manifest = proj / "manifest.json"
+    target = proj / "manifest-target.json"
+    manifest.replace(target)
+    manifest.symlink_to(target.name)
+
+    unsafe = runner.invoke(app, ["extract", str(src)])
+
+    assert unsafe.exit_code == 1
+    assert str(manifest) in unsafe.output and "symlink" in unsafe.output

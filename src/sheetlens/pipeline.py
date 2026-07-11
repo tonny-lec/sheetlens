@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -49,6 +50,19 @@ class CompileResult(BaseModel):
 
 class ExistingStructureError(Exception):
     pass
+
+
+class ProjectRecoveryError(Exception):
+    pass
+
+
+class PostCommitCleanupError(Exception):
+    def __init__(self, project: Path, backup: Path, cause: OSError):
+        self.project = project
+        self.backup = backup
+        super().__init__(
+            f"{project} の生成は完了しましたが、backup {backup} を削除できません: {cause}"
+        )
 
 
 def analyze(wb: ir.Workbook) -> Analysis:
@@ -191,12 +205,145 @@ def _write_views(
     )
 
 
+_MANAGED_PROJECT_PATHS = (
+    "structure",
+    "manifest.json",
+    "question-ids.json",
+    "questions.md",
+    "README.md",
+    "annotations",
+)
+
+
+def _transaction_paths(proj: Path) -> tuple[Path, Path, Path]:
+    prefix = f".{proj.name}.sheetlens-transaction"
+    return (
+        proj.parent / f"{prefix}.stage",
+        proj.parent / f"{prefix}.backup",
+        proj.parent / f"{prefix}.lock",
+    )
+
+
+def _reject_unsafe_project_paths(proj: Path) -> None:
+    if proj.is_symlink():
+        raise ExistingStructureError(
+            f"{proj} はsymlinkのため安全に置換できません。実体pathを出力先に指定してください。"
+        )
+    if proj.exists() and not proj.is_dir():
+        raise ExistingStructureError(
+            f"{proj} はdirectoryではありません。別の出力先を指定してください。"
+        )
+    for relative in _MANAGED_PROJECT_PATHS:
+        path = proj / relative
+        if path.is_symlink():
+            raise ExistingStructureError(
+                f"{path} はsymlinkのため安全に置換できません。symlinkを解消して再実行してください。"
+            )
+
+
+def _write_extracted_project(
+    proj: Path,
+    wb: ir.Workbook,
+    analysis: Analysis,
+    catalog: QuestionIdCatalog,
+) -> None:
+    structure_dir = proj / "structure"
+    structure_dir.mkdir(parents=True)
+    (proj / "annotations").mkdir(exist_ok=True)
+    (structure_dir / "raw.json").write_text(
+        wb.model_dump_json(indent=2), encoding="utf-8"
+    )
+    (proj / "manifest.json").write_text(
+        json.dumps(build_manifest(wb), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    if wb.vba_modules:
+        vba_dir = structure_dir / "vba"
+        vba_dir.mkdir(exist_ok=True)
+        for module in wb.vba_modules:
+            name = _safe(module.name)
+            if "." not in name:
+                name += ".bas"
+            (vba_dir / name).write_text(module.code, encoding="utf-8")
+    _write_views(proj, wb, analysis, [], set())
+    save_catalog(proj / "question-ids.json", catalog)
+
+
+def _validate_staged_project(
+    proj: Path,
+    expected: ir.Workbook,
+    analysis: Analysis,
+) -> None:
+    raw_path = proj / "structure" / "raw.json"
+    staged = ir.Workbook.model_validate_json(raw_path.read_text(encoding="utf-8"))
+    if staged.sha256 != expected.sha256:
+        raise ExistingStructureError(
+            f"{raw_path} のsource hashが生成対象と一致しません。再実行してください。"
+        )
+    json.loads((proj / "manifest.json").read_text(encoding="utf-8"))
+    catalog = load_catalog(
+        proj / "question-ids.json",
+        expected_source_sha256=expected.sha256,
+    )
+    if catalog is None:
+        raise ExistingStructureError(
+            f"{proj / 'question-ids.json'} を検証できません。再実行してください。"
+        )
+    validate_catalog_questions(catalog, analysis.question_set)
+    required = [proj / "README.md", proj / "questions.md"]
+    required.extend(
+        proj / "structure" / f"sheet-{_safe(sheet.name)}.md"
+        for sheet in expected.sheets
+    )
+    required.extend(
+        proj
+        / "structure"
+        / "vba"
+        / (
+            _safe(module.name)
+            if "." in _safe(module.name)
+            else f"{_safe(module.name)}.bas"
+        )
+        for module in expected.vba_modules
+    )
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise ExistingStructureError(
+            f"staging成果物が不足しています: {', '.join(missing)}。再実行してください。"
+        )
+
+
+def _swap_staged_project(proj: Path, stage: Path, backup: Path) -> None:
+    if not proj.exists():
+        stage.replace(proj)
+        return
+    proj.replace(backup)
+    try:
+        stage.replace(proj)
+    except OSError as swap_error:
+        try:
+            backup.replace(proj)
+        except OSError as rollback_error:
+            raise ProjectRecoveryError(
+                f"project置換とrollbackの両方に失敗しました。手動で復旧してください: "
+                f"project={proj}, backup={backup}, stage={stage}, "
+                f"swap_error={swap_error}, rollback_error={rollback_error}"
+            ) from rollback_error
+        raise
+    try:
+        shutil.rmtree(backup)
+    except OSError as exc:
+        raise PostCommitCleanupError(proj, backup, exc) from exc
+
+
 def extract_workbook(src: Path, out: Path | None = None) -> Path:
     wb = read_workbook(src)
     proj = out or src.with_name(src.stem + ".sheetlens")
-    structure_dir = proj / "structure"
     analysis = analyze(wb)
+    structure_dir = proj / "structure"
     raw_path = structure_dir / "raw.json"
+
+    proj.parent.mkdir(parents=True, exist_ok=True)
+    _reject_unsafe_project_paths(proj)
 
     if (proj / "question-ids.json").exists() and not raw_path.exists():
         raise ExistingStructureError(
@@ -223,27 +370,56 @@ def extract_workbook(src: Path, out: Path | None = None) -> Path:
             previous=old_catalog,
         )
         validate_catalog_questions(catalog, analysis.question_set)
-        shutil.rmtree(structure_dir)  # SheetLens 出力なので再生成のため削除
     else:
         catalog = build_catalog(wb.sha256, analysis.question_set)
 
-    structure_dir.mkdir(parents=True)
-    (proj / "annotations").mkdir(exist_ok=True)  # 既存の中身には触れない
-    (structure_dir / "raw.json").write_text(wb.model_dump_json(indent=2), encoding="utf-8")
-    (proj / "manifest.json").write_text(
-        json.dumps(build_manifest(wb), ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    if wb.vba_modules:
-        vba_dir = structure_dir / "vba"
-        vba_dir.mkdir(exist_ok=True)
-        for m in wb.vba_modules:
-            name = _safe(m.name)
-            if "." not in name:
-                name += ".bas"
-            (vba_dir / name).write_text(m.code, encoding="utf-8")
-    # extract は注釈なしのビューを書く（織り込みは compile の仕事）
-    _write_views(proj, wb, analysis, [], set())
-    save_catalog(proj / "question-ids.json", catalog)
+    stage, backup, lock = _transaction_paths(proj)
+    try:
+        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as exc:
+        raise ExistingStructureError(
+            f"{lock} が存在するため別のextractが実行中か、前回処理が中断しています。"
+            "状態を確認して手動で復旧してください。"
+        ) from exc
+    try:
+        os.write(descriptor, f"pid={os.getpid()}\n".encode())
+    except OSError:
+        lock.unlink(missing_ok=True)
+        raise
+    finally:
+        os.close(descriptor)
+    preserve_stage = False
+    preserve_lock = False
+    try:
+        stale = [path for path in (stage, backup) if path.exists() or path.is_symlink()]
+        if stale:
+            preserve_stage = stage in stale
+            raise ExistingStructureError(
+                "前回transactionの残存pathがあります。自動削除せず中断しました: "
+                f"{', '.join(str(path) for path in stale)}。内容を確認して手動復旧してください。"
+            )
+        if proj.exists():
+            shutil.copytree(proj, stage, symlinks=True)
+            staged_structure = stage / "structure"
+            if staged_structure.exists():
+                shutil.rmtree(staged_structure)
+        else:
+            stage.mkdir()
+        _write_extracted_project(stage, wb, analysis, catalog)
+        _validate_staged_project(stage, wb, analysis)
+        try:
+            _swap_staged_project(proj, stage, backup)
+        except ProjectRecoveryError:
+            preserve_stage = True
+            preserve_lock = True
+            raise
+    finally:
+        try:
+            if not preserve_stage and stage.exists():
+                shutil.rmtree(stage)
+        finally:
+            if not preserve_lock:
+                lock.unlink(missing_ok=True)
     return proj
 
 
