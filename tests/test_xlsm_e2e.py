@@ -31,11 +31,12 @@ def test_real_xlsm_extracts_module_event_button_questions_and_known_gaps():
     assert "Sub CalculateAll()" in modules["Calculations.bas"]
     assert "Private Sub Workbook_Open()" in modules["ThisWorkbook.cls"]
     assert workbook.buttons == [
-        ir.ButtonLink(sheet="Scratch", macro="[0]!Button1_Click"),
+        ir.ButtonLink(sheet="Scratch", label="Button 1", macro="[0]!Button1_Click"),
     ]
     assert workbook.extraction_gaps == [
         "Scratch: drawing xl/drawings/drawing1.xml の AlternateContent は未対応です",
         "Scratch: VML drawing は未対応です",
+        "Scratch: ActiveX control 2件の詳細抽出は未対応です",
     ]
 
     questions = analyze(workbook).questions
@@ -71,7 +72,7 @@ def test_extract_cli_processes_real_xlsm_without_mocking_parser(tmp_path):
     raw = json.loads((project / "structure" / "raw.json").read_text(encoding="utf-8"))
     assert "Calculations.bas" in [module["name"] for module in raw["vba_modules"]]
     assert raw["buttons"] == [
-        {"sheet": "Scratch", "label": None, "macro": "[0]!Button1_Click"},
+        {"sheet": "Scratch", "label": "Button 1", "macro": "[0]!Button1_Click"},
     ]
     questions = (project / "questions.md").read_text(encoding="utf-8")
     assert "ThisWorkbook.cls.Workbook_Open" in questions

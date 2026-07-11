@@ -302,7 +302,7 @@ def read_workbook(path: Path) -> ir.Workbook:
     except Exception as e:  # noqa: BLE001
         gaps.append(f"VBA の抽出に失敗 ({e})")
     try:
-        buttons = extract_buttons(path)
+        buttons = extract_buttons(path, extraction_gaps=gaps)
     except Exception as e:  # noqa: BLE001
         gaps.append(f"ボタン↔マクロ対応の抽出に失敗 ({e})")
     return ir.Workbook(
