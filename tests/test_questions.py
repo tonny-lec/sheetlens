@@ -50,6 +50,23 @@ def test_rules_produce_expected_categories():
     assert targets == ["A3:B8"]
 
 
+def test_hidden_column_question_includes_expanded_group_range():
+    sheet = ir.Sheet(name="入力", hidden_cols=["B", "C", "D"])
+
+    hidden = _by_key(
+        questions.generate_questions(
+            ir.Workbook(source_file="a.xlsx", sha256="00" * 32, sheets=[sheet]),
+            {"入力": []},
+            {"入力": []},
+        ),
+        "入力",
+        "hidden_reason",
+        "B,C,D",
+    )
+
+    assert hidden.rule == "hidden_columns"
+
+
 def test_sheet_role_id_is_a_stable_golden_value():
     wb = ir.Workbook(
         source_file="a.xlsx",

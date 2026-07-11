@@ -6,6 +6,8 @@ from pathlib import Path
 import openpyxl
 from openpyxl.cell.cell import Cell as OpenpyxlCell
 from openpyxl.styles import numbers
+from openpyxl.utils.cell import column_index_from_string, get_column_letter, range_boundaries
+from openpyxl.xml.constants import MAX_COLUMN, MAX_ROW
 
 from sheetlens.model import ir
 from sheetlens.reader.artifacts import extract_sheet_artifacts
@@ -150,6 +152,83 @@ def _read_cell(formula_cell: OpenpyxlCell, value_cell: OpenpyxlCell) -> ir.Cell:
     )
 
 
+def _range_envelope(
+    references: list[str],
+    *,
+    sheet_name: str,
+    gaps: list[str],
+) -> str | None:
+    bounds: list[tuple[int, int, int, int]] = []
+    for reference in references:
+        try:
+            min_col, min_row, max_col, max_row = range_boundaries(reference)
+        except (TypeError, ValueError):
+            gaps.append(f"{sheet_name}!{reference}: 構造範囲を解釈できませんでした")
+            continue
+        normalized = (
+            min_col or 1,
+            min_row or 1,
+            max_col or MAX_COLUMN,
+            max_row or MAX_ROW,
+        )
+        if not (
+            1 <= normalized[0] <= normalized[2] <= MAX_COLUMN
+            and 1 <= normalized[1] <= normalized[3] <= MAX_ROW
+        ):
+            gaps.append(f"{sheet_name}!{reference}: 構造範囲が Excel の境界外です")
+            continue
+        bounds.append(
+            normalized
+        )
+    if not bounds:
+        return None
+    min_col = min(bound[0] for bound in bounds)
+    min_row = min(bound[1] for bound in bounds)
+    max_col = max(bound[2] for bound in bounds)
+    max_row = max(bound[3] for bound in bounds)
+    return f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
+
+
+def _raw_structural_ranges(ws, gaps: list[str]) -> list[str]:
+    references = [str(cell_range) for cell_range in ws.merged_cells.ranges]
+    try:
+        for validation in ws.data_validations.dataValidation:
+            references.extend(str(cell_range) for cell_range in validation.sqref.ranges)
+    except Exception as exc:  # noqa: BLE001 — 構造情報の欠落を gap に残す
+        gaps.append(f"{ws.title}: 入力規則の構造範囲抽出に失敗 ({exc})")
+    try:
+        for conditional_format in ws.conditional_formatting:
+            references.extend(
+                str(cell_range) for cell_range in conditional_format.sqref.ranges
+            )
+    except Exception as exc:  # noqa: BLE001 — 構造情報の欠落を gap に残す
+        gaps.append(f"{ws.title}: 条件付き書式の構造範囲抽出に失敗 ({exc})")
+    return references
+
+
+def _hidden_columns(ws) -> list[str]:
+    hidden: set[int] = set()
+    for key, dimension in ws.column_dimensions.items():
+        if not dimension.hidden:
+            continue
+        start = dimension.min or column_index_from_string(key)
+        end = dimension.max or start
+        hidden.update(range(start, end + 1))
+    return [get_column_letter(index) for index in sorted(hidden)]
+
+
+def _materialized_value_cells(ws) -> list[OpenpyxlCell]:
+    # iter_rows() は書式だけの最遠セルまで矩形展開するため、実体化済みセルだけを見る。
+    return sorted(
+        (
+            cell
+            for cell in ws._cells.values()  # noqa: SLF001 — openpyxl に公開 iterator がない
+            if isinstance(cell, OpenpyxlCell) and cell.value is not None
+        ),
+        key=lambda cell: (cell.row, cell.column),
+    )
+
+
 def read_workbook(path: Path) -> ir.Workbook:
     data = path.read_bytes()
     keep_vba = path.suffix.lower() in (".xlsm", ".xltm")
@@ -162,19 +241,16 @@ def read_workbook(path: Path) -> ir.Workbook:
     for ws_f in wb_f.worksheets:
         ws_v = wb_v[ws_f.title]
         cells: list[ir.Cell] = []
-        for row in ws_f.iter_rows():
-            for c in row:
-                if c.value is None:
-                    continue
-                if c.data_type == "f":
-                    raw = c.value
-                    formula = _formula_text(raw)
-                    if formula is None:
-                        gaps.append(
-                            f"{ws_f.title}!{c.coordinate}: 未対応の数式型 "
-                            f"{type(raw).__name__} のため数式を抽出できませんでした"
-                        )
-                cells.append(_read_cell(c, ws_v[c.coordinate]))
+        for c in _materialized_value_cells(ws_f):
+            if c.data_type == "f":
+                raw = c.value
+                formula = _formula_text(raw)
+                if formula is None:
+                    gaps.append(
+                        f"{ws_f.title}!{c.coordinate}: 未対応の数式型 "
+                        f"{type(raw).__name__} のため数式を抽出できませんでした"
+                    )
+            cells.append(_read_cell(c, ws_v[c.coordinate]))
         try:
             validations = read_validations(
                 ws_f,
@@ -189,13 +265,25 @@ def read_workbook(path: Path) -> ir.Workbook:
         except Exception as e:  # noqa: BLE001
             cformats = []
             gaps.append(f"{ws_f.title}: 条件付き書式の抽出に失敗 ({e})")
+        content_range = _range_envelope(
+            [cell.ref for cell in cells],
+            sheet_name=ws_f.title,
+            gaps=gaps,
+        )
+        structural_range = _range_envelope(
+            [cell.ref for cell in cells] + _raw_structural_ranges(ws_f, gaps),
+            sheet_name=ws_f.title,
+            gaps=gaps,
+        )
         sheets.append(
             ir.Sheet(
                 name=ws_f.title,
-                used_range=ws_f.calculate_dimension() if cells else None,
+                used_range=content_range,
+                content_range=content_range,
+                structural_range=structural_range,
                 hidden=ws_f.sheet_state != "visible",
                 protected=bool(ws_f.protection.sheet),
-                hidden_cols=sorted(k for k, v in ws_f.column_dimensions.items() if v.hidden),
+                hidden_cols=_hidden_columns(ws_f),
                 hidden_rows=sorted(k for k, v in ws_f.row_dimensions.items() if v.hidden),
                 cells=cells,
                 merged=[str(r) for r in ws_f.merged_cells.ranges],

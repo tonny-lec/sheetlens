@@ -121,7 +121,8 @@ def _conditional_format_text(cf: ir.ConditionalFormat) -> str:
 
 
 def _grid(sheet: ir.Sheet) -> list[str]:
-    if not sheet.cells or not sheet.used_range:
+    content_range = sheet.content_range or sheet.used_range
+    if not sheet.cells or not content_range:
         return ["（空シート）", ""]
     cellmap = {c.ref: c for c in sheet.cells}
     anchors: dict[str, str] = {}
@@ -135,7 +136,7 @@ def _grid(sheet: ir.Sheet) -> list[str]:
             for c in range(min_c, max_c + 1)
             if (r, c) != (min_r, min_c)
         )
-    min_c, min_r, max_c, max_r = range_boundaries(sheet.used_range)
+    min_c, min_r, max_c, max_r = range_boundaries(content_range)
     trunc = max_r - min_r + 1 > MAX_GRID_ROWS or max_c - min_c + 1 > MAX_GRID_COLS
     max_r = min(max_r, min_r + MAX_GRID_ROWS - 1)
     max_c = min(max_c, min_c + MAX_GRID_COLS - 1)
@@ -183,7 +184,8 @@ def render_sheet_md(
         flags.append(f"非表示列: {', '.join(sheet.hidden_cols)}")
     lines += [
         "## 概要",
-        f"- 使用範囲: {sheet.used_range or 'なし'} / 結合セル: {len(sheet.merged)} 箇所 / "
+        f"- 内容範囲: {sheet.content_range or sheet.used_range or 'なし'} / "
+        f"構造範囲: {sheet.structural_range or 'なし'} / 結合セル: {len(sheet.merged)} 箇所 / "
         f"数式セル: {sum(1 for c in sheet.cells if c.formula)} / 入力規則: {len(sheet.validations)}",
     ]
     if flags:
@@ -280,7 +282,10 @@ def render_readme(
     ]
     for s in wb.sheets:
         mark = "（非表示）" if s.hidden else ""
-        lines.append(f"- {s.name}{mark}: 使用範囲 {s.used_range or 'なし'}")
+        lines.append(
+            f"- {s.name}{mark}: 内容範囲 {s.content_range or s.used_range or 'なし'} / "
+            f"構造範囲 {s.structural_range or 'なし'}"
+        )
     edges = [(a, bs) for a, bs in deps.items() if bs]
     if edges:
         lines += ["", "## シート間依存（参照する側 → される側）", ""]

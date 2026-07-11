@@ -67,10 +67,13 @@ def find_orphans(wb: ir.Workbook, anns: list[SheetAnnotations]) -> list[str]:
                 continue
             if t.kind in ("trigger_timing", "hidden_reason"):
                 continue
-            if not sheet.used_range:
+            available_range = (
+                sheet.structural_range or sheet.used_range or sheet.content_range
+            )
+            if not available_range:
                 orphans.append(f"{ann.sheet}!{t.range}: シートが空です")
                 continue
-            u_min_c, u_min_r, u_max_c, u_max_r = range_boundaries(sheet.used_range)
+            u_min_c, u_min_r, u_max_c, u_max_r = range_boundaries(available_range)
             for part in split_ranges(t.range):
                 try:
                     min_c, min_r, max_c, max_r = range_boundaries(part)
@@ -87,6 +90,6 @@ def find_orphans(wb: ir.Workbook, anns: list[SheetAnnotations]) -> list[str]:
                     and max_r <= u_max_r
                 ):
                     orphans.append(
-                        f"{ann.sheet}!{part}: 現在の使用範囲 {sheet.used_range} の外にあります"
+                        f"{ann.sheet}!{part}: 現在の構造範囲 {available_range} の外にあります"
                     )
     return orphans

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from openpyxl.utils.cell import get_column_letter, range_boundaries
+from openpyxl.xml.constants import MAX_COLUMN, MAX_ROW
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 Primitive = str | int | float | bool | None
 CellValueType = Literal[
@@ -25,6 +27,59 @@ CellDisplaySemantics = Literal[
     "leading_zero",
     "error",
 ]
+
+
+def _normalized_range_boundaries(reference: str) -> tuple[int, int, int, int]:
+    try:
+        min_col, min_row, max_col, max_row = range_boundaries(reference)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"range が不正です: {reference}") from exc
+    normalized = (
+        min_col or 1,
+        min_row or 1,
+        max_col or MAX_COLUMN,
+        max_row or MAX_ROW,
+    )
+    if not (
+        1 <= normalized[0] <= normalized[2] <= MAX_COLUMN
+        and 1 <= normalized[1] <= normalized[3] <= MAX_ROW
+    ):
+        raise ValueError(f"range が Excel の境界外です: {reference}")
+    return normalized
+
+
+def _structural_union(
+    content_range: str | None,
+    structural_range: str | None,
+) -> str | None:
+    content = (
+        None
+        if content_range is None
+        else _normalized_range_boundaries(content_range)
+    )
+    structural = (
+        None
+        if structural_range is None
+        else _normalized_range_boundaries(structural_range)
+    )
+    if content_range is None:
+        return structural_range
+    if structural_range is None:
+        return content_range
+    assert content is not None
+    assert structural is not None
+    if (
+        structural[0] <= content[0]
+        and structural[1] <= content[1]
+        and content[2] <= structural[2]
+        and content[3] <= structural[3]
+    ):
+        return structural_range
+    min_col = min(content[0], structural[0])
+    min_row = min(content[1], structural[1])
+    max_col = max(content[2], structural[2])
+    max_row = max(content[3], structural[3])
+    return f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
 
 
 class Cell(BaseModel):
@@ -143,7 +198,8 @@ class SheetArtifact(BaseModel):
 
 class Sheet(BaseModel):
     name: str
-    used_range: str | None = None
+    content_range: str | None = None
+    structural_range: str | None = None
     hidden: bool = False
     protected: bool = False
     hidden_cols: list[str] = Field(default_factory=list)
@@ -153,6 +209,52 @@ class Sheet(BaseModel):
     validations: list[ValidationRule] = Field(default_factory=list)
     conditional_formats: list[ConditionalFormat] = Field(default_factory=list)
     artifacts: list[SheetArtifact] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def synchronize_content_range(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        synchronized = dict(data)
+        used_range = synchronized.pop("used_range", None)
+        content_range = synchronized.get("content_range")
+        if used_range is not None and content_range is not None:
+            if used_range != content_range:
+                raise ValueError("used_range と content_range が競合しています")
+        if used_range is not None:
+            synchronized["content_range"] = used_range
+        synchronized["structural_range"] = _structural_union(
+            synchronized.get("content_range"),
+            synchronized.get("structural_range"),
+        )
+        return synchronized
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if "content_range" not in self.__dict__:
+            super().__setattr__(name, value)
+            return
+        if name == "content_range":
+            previous_content = self.content_range
+            previous_structural = self.structural_range
+            if previous_structural == previous_content:
+                structural_range = _structural_union(value, value)
+            else:
+                structural_range = _structural_union(value, previous_structural)
+            super().__setattr__(name, value)
+            super().__setattr__("structural_range", structural_range)
+            return
+        if name == "structural_range":
+            value = _structural_union(self.content_range, value)
+        super().__setattr__(name, value)
+
+    @computed_field
+    @property
+    def used_range(self) -> str | None:
+        return self.content_range
+
+    @used_range.setter
+    def used_range(self, value: str | None) -> None:
+        self.content_range = value
 
 
 class Workbook(BaseModel):

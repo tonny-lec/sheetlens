@@ -53,6 +53,8 @@ def build_manifest(wb: ir.Workbook) -> dict:
                 "name": s.name,
                 "hidden": s.hidden,
                 "used_range": s.used_range,
+                "content_range": s.content_range,
+                "structural_range": s.structural_range,
                 "artifacts": [artifact.model_dump() for artifact in s.artifacts],
             }
             for s in wb.sheets

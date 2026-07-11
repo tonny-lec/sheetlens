@@ -218,3 +218,67 @@ def test_workbook_json_roundtrip():
     restored = ir.Workbook.model_validate_json(wb.model_dump_json())
     assert restored == wb
     assert restored.sheets[0].cells[1].formula == "=A1*2"
+
+
+def test_sheet_range_fields_accept_legacy_and_new_inputs_and_reject_conflicts():
+    legacy = ir.Sheet(name="legacy", used_range="A1:C3")
+    assert legacy.used_range == "A1:C3"
+    assert legacy.content_range == "A1:C3"
+    assert legacy.structural_range == "A1:C3"
+
+    current = ir.Sheet(
+        name="current",
+        content_range="B2:D4",
+        structural_range="A1:F10",
+    )
+    assert current.used_range == "B2:D4"
+    assert current.content_range == "B2:D4"
+    assert current.model_dump()["structural_range"] == "A1:F10"
+
+    legacy.used_range = "A1:B2"
+    assert legacy.content_range == "A1:B2"
+    assert legacy.structural_range == "A1:B2"
+    assert legacy.model_dump()["used_range"] == "A1:B2"
+
+    current.content_range = "A1:Z20"
+    assert current.structural_range == "A1:Z20"
+
+    current.used_range = "A1:AA30"
+    assert current.content_range == "A1:AA30"
+    assert current.structural_range == "A1:AA30"
+
+    narrow_structure = ir.Sheet(
+        name="narrow",
+        content_range="A1:Z20",
+        structural_range="A1:F10",
+    )
+    assert narrow_structure.structural_range == "A1:Z20"
+
+    narrow_structure.structural_range = "A1:B2"
+    assert narrow_structure.structural_range == "A1:Z20"
+    narrow_structure.structural_range = None
+    assert narrow_structure.structural_range == "A1:Z20"
+
+    with pytest.raises(ValueError, match="range が不正"):
+        legacy.content_range = "NOT-A-RANGE"
+    with pytest.raises(ValueError, match="range が不正"):
+        legacy.structural_range = "NOT-A-RANGE"
+
+    for invalid_input in (
+        {"content_range": "NOT-A-RANGE"},
+        {"structural_range": "NOT-A-RANGE"},
+        {"used_range": "NOT-A-RANGE"},
+    ):
+        with pytest.raises(ValueError, match="range が不正"):
+            ir.Sheet(name="invalid", **invalid_input)
+
+    empty = ir.Sheet(name="empty")
+    with pytest.raises(ValueError, match="range が不正"):
+        empty.structural_range = "NOT-A-RANGE"
+
+    with pytest.raises(ValueError, match="used_range と content_range"):
+        ir.Sheet(
+            name="conflict",
+            used_range="A1:A1",
+            content_range="B2:B2",
+        )

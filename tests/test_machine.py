@@ -143,6 +143,8 @@ def test_manifest_shape():
         "name": "見積入力",
         "hidden": False,
         "used_range": "A1:B2",
+        "content_range": "A1:B2",
+        "structural_range": "A1:B2",
         "artifacts": [
             {
                 "type": "chart",

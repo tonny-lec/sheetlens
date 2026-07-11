@@ -5,6 +5,8 @@ import zipfile
 import openpyxl
 import pytest
 from openpyxl.chart import BarChart, Reference
+from openpyxl.formatting.rule import CellIsRule
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 
 from sheetlens.reader.artifacts import extract_sheet_artifacts
@@ -12,6 +14,7 @@ from sheetlens.reader.workbook import (
     _formula_text,
     _has_currency_format,
     _has_leading_zero_format,
+    _range_envelope,
     read_workbook,
 )
 
@@ -129,8 +132,90 @@ def test_read_cells_formulas_merges(make_xlsx):
     assert cells["A1"].value == "見積書"
     assert cells["B3"].value == 5
     assert cells["C3"].formula == "=B3*100"
+    assert sheet.content_range == "A1:C3"
+    assert sheet.structural_range == "A1:C3"
     assert "D" in sheet.hidden_cols
     assert wb.sheets[1].hidden is True
+
+
+def test_styled_empty_cell_does_not_expand_content_or_structural_range(make_xlsx):
+    def build(wb):
+        ws = wb.active
+        ws["A1"] = "content"
+        ws["XFD1048576"].number_format = "0.00"
+
+    sheet = read_workbook(make_xlsx(build)).sheets[0]
+
+    assert sheet.content_range == "A1:A1"
+    assert sheet.structural_range == "A1:A1"
+
+
+def test_range_envelope_normalizes_whole_ranges_and_reports_out_of_bounds():
+    gaps: list[str] = []
+
+    envelope = _range_envelope(
+        ["A:A", "2:4", "XFE1"],
+        sheet_name="Sheet1",
+        gaps=gaps,
+    )
+
+    assert envelope == "A1:XFD1048576"
+    assert gaps == ["Sheet1!XFE1: 構造範囲が Excel の境界外です"]
+
+
+def _build_structural_only_sheet(wb):
+    ws = wb.active
+    ws.title = "構造のみ"
+    ws["Z99"].number_format = "0.00"
+    ws.merge_cells("B2:C3")
+    validation = DataValidation(type="whole")
+    validation.add("F10:F12")
+    ws.add_data_validation(validation)
+    ws.conditional_formatting.add(
+        "H20:I21",
+        CellIsRule(operator="greaterThan", formula=["0"]),
+    )
+    ws.column_dimensions.group("B", "D", hidden=True)
+    ws.column_dimensions.group("Z", "AB", hidden=True)
+
+
+def test_content_and_structural_ranges_and_grouped_hidden_columns(make_xlsx):
+    workbook = read_workbook(make_xlsx(_build_structural_only_sheet))
+    sheet = workbook.sheets[0]
+
+    assert sheet.used_range is None
+    assert sheet.content_range is None
+    assert sheet.structural_range == "B2:I21"
+    assert sheet.hidden_cols == ["B", "C", "D", "Z", "AA", "AB"]
+
+
+def test_raw_structural_ranges_survive_semantic_extraction_failure(
+    make_xlsx, monkeypatch
+):
+    def build(wb):
+        ws = wb.active
+        validation = DataValidation(type="whole")
+        validation.add("D4:D5")
+        ws.add_data_validation(validation)
+        ws.conditional_formatting.add(
+            "G8",
+            CellIsRule(operator="greaterThan", formula=["0"]),
+        )
+
+    monkeypatch.setattr(
+        "sheetlens.reader.workbook.read_validations",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("validation boom")),
+    )
+    monkeypatch.setattr(
+        "sheetlens.reader.workbook.read_conditional_formats",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("format boom")),
+    )
+
+    workbook = read_workbook(make_xlsx(build))
+
+    assert workbook.sheets[0].structural_range == "D4:G8"
+    assert any("validation boom" in gap for gap in workbook.extraction_gaps)
+    assert any("format boom" in gap for gap in workbook.extraction_gaps)
 
 
 def test_read_workbook_records_chart_reused_image_shapes_and_pivot(

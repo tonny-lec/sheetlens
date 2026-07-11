@@ -12,6 +12,7 @@ def _sheet():
     return ir.Sheet(
         name="見積入力",
         used_range="A1:E12",
+        structural_range="A1:F30",
         cells=[
             ir.Cell(ref="A1", value="見積書"),
             ir.Cell(ref="A3", value="顧客名"),
@@ -41,6 +42,8 @@ def test_sheet_md_mentions_structure():
     assert "通常" in md and "特急" in md
     assert "lessThan 0" in md
     assert "Module1.Register" in md
+    assert "内容範囲: A1:E12" in md
+    assert "構造範囲: A1:F30" in md
 
 
 def test_annotations_and_unanswered_woven_in():

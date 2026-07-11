@@ -67,3 +67,36 @@ def test_orphan_detection(tmp_path):
     assert any("消えたシート" in o for o in orphans)
     assert any("A10:H30" in o for o in orphans)
     assert not any("C5" in o for o in orphans)
+
+
+def test_structural_range_allows_annotation_outside_content_range(tmp_path):
+    (tmp_path / "見積入力.yaml").write_text(
+        "sheet: 見積入力\ntargets:\n  - range: H20:H30\n    kind: free_note\n",
+        encoding="utf-8",
+    )
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[
+            ir.Sheet(
+                name="見積入力",
+                content_range="A1:F20",
+                structural_range="A1:H30",
+            )
+        ],
+    )
+
+    assert find_orphans(wb, load_annotations(tmp_path)) == []
+
+
+def test_legacy_used_range_assignment_updates_annotation_boundary(tmp_path):
+    (tmp_path / "見積入力.yaml").write_text(
+        "sheet: 見積入力\ntargets:\n  - range: G21:H30\n    kind: free_note\n",
+        encoding="utf-8",
+    )
+    wb = _wb()
+
+    wb.sheets[0].used_range = "A1:F20"
+
+    orphans = find_orphans(wb, load_annotations(tmp_path))
+    assert orphans == ["見積入力!G21:H30: 現在の構造範囲 A1:F20 の外にあります"]
