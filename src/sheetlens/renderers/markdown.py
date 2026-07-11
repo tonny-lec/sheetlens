@@ -40,6 +40,59 @@ def _cell_text(text: str) -> str:
     return text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ").replace("|", "\\|")
 
 
+def _conditional_value_text(value: ir.ConditionalValue) -> str:
+    text = value.type or "unknown"
+    if value.value is not None:
+        text += f"={_conditional_primitive_text(value.value)}"
+    if value.gte is not None:
+        text += f" (gte={_conditional_primitive_text(value.gte)})"
+    return text
+
+
+def _conditional_color_text(color: ir.ConditionalColor) -> str:
+    text = f"{color.type}={_conditional_primitive_text(color.value)}"
+    if color.tint:
+        text += f" (tint={color.tint})"
+    return text
+
+
+def _conditional_primitive_text(value: ir.Primitive) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value)
+
+
+def _conditional_payload_text(cf: ir.ConditionalFormat) -> str | None:
+    if cf.color_scale:
+        conditions = ", ".join(_conditional_value_text(v) for v in cf.color_scale.conditions)
+        colors = ", ".join(_conditional_color_text(c) for c in cf.color_scale.colors)
+        return f"colorScale(conditions=[{conditions}], colors=[{colors}])"
+    if cf.data_bar:
+        conditions = ", ".join(_conditional_value_text(v) for v in cf.data_bar.conditions)
+        color = _conditional_color_text(cf.data_bar.color)
+        return (
+            f"dataBar(conditions=[{conditions}], color={color}, "
+            f"showValue={_conditional_primitive_text(cf.data_bar.show_value)}, "
+            f"length={cf.data_bar.min_length}-{cf.data_bar.max_length})"
+        )
+    if cf.icon_set:
+        conditions = ", ".join(_conditional_value_text(v) for v in cf.icon_set.conditions)
+        return (
+            f"iconSet(style={cf.icon_set.icon_style}, conditions=[{conditions}], "
+            f"showValue={_conditional_primitive_text(cf.icon_set.show_value)}, "
+            f"percent={_conditional_primitive_text(cf.icon_set.percent)}, "
+            f"reverse={_conditional_primitive_text(cf.icon_set.reverse)})"
+        )
+    return None
+
+
+def _conditional_format_text(cf: ir.ConditionalFormat) -> str:
+    formulas = ", ".join(cf.formulas)
+    common = " ".join(part for part in (cf.operator, formulas) if part)
+    payload = _conditional_payload_text(cf)
+    return " / ".join(part for part in (common, payload) if part) or cf.rule_type
+
+
 def _grid(sheet: ir.Sheet) -> list[str]:
     if not sheet.cells or not sheet.used_range:
         return ["（空シート）", ""]
@@ -140,7 +193,7 @@ def render_sheet_md(
     if sheet.conditional_formats:
         lines += ["## 条件付き書式", ""]
         for cf in sheet.conditional_formats:
-            cond = " ".join(x for x in (cf.operator, cf.formula) if x) or cf.rule_type
+            cond = _conditional_format_text(cf)
             lines.append(f"- {cf.range}: {cf.rule_type} — 条件: {cond}")
             for rng in split_ranges(cf.range):
                 lines += _ann_lines(ann, rng)

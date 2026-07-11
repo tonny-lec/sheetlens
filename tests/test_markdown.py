@@ -107,6 +107,118 @@ def test_multirange_conditional_format_annotation_woven():
     assert "担当へ連絡" in md
 
 
+def test_conditional_format_lists_all_formulas_in_order_and_handles_empty_formulas():
+    sheet = ir.Sheet(
+        name="s",
+        used_range="A1:B2",
+        cells=[ir.Cell(ref="A1", value="x")],
+        conditional_formats=[
+            ir.ConditionalFormat(
+                range="A1:A2",
+                rule_type="cellIs",
+                operator="between",
+                formulas=["1", "10"],
+            ),
+            ir.ConditionalFormat(range="B1:B2", rule_type="expression", formulas=[]),
+        ],
+    )
+
+    md = render_sheet_md(sheet, [], [], [], [])
+
+    assert "A1:A2: cellIs — 条件: between 1, 10" in md
+    assert "B1:B2: expression — 条件: expression" in md
+
+
+def test_conditional_format_visual_payloads_have_deterministic_summaries():
+    conditions = [
+        ir.ConditionalValue(type="min"),
+        ir.ConditionalValue(type="percentile", value=50, gte=False),
+        ir.ConditionalValue(type="max"),
+    ]
+    sheet = ir.Sheet(
+        name="s",
+        used_range="A1:C2",
+        cells=[ir.Cell(ref="A1", value="x")],
+        conditional_formats=[
+            ir.ConditionalFormat(
+                range="A1:A2",
+                rule_type="colorScale",
+                color_scale=ir.ConditionalColorScale(
+                    conditions=conditions,
+                    colors=[
+                        ir.ConditionalColor(type="rgb", value="FFFF0000"),
+                        ir.ConditionalColor(type="theme", value=2, tint=-0.25),
+                        ir.ConditionalColor(type="indexed", value=3),
+                    ],
+                ),
+            ),
+            ir.ConditionalFormat(
+                range="B1:B2",
+                rule_type="dataBar",
+                data_bar=ir.ConditionalDataBar(
+                    conditions=[ir.ConditionalValue(type="min"), ir.ConditionalValue(type="max")],
+                    color=ir.ConditionalColor(type="auto", value=True),
+                    show_value=False,
+                    min_length=10,
+                    max_length=90,
+                ),
+            ),
+            ir.ConditionalFormat(
+                range="C1:C2",
+                rule_type="iconSet",
+                icon_set=ir.ConditionalIconSet(
+                    icon_style="3TrafficLights1",
+                    conditions=[
+                        ir.ConditionalValue(type="num", value=0),
+                        ir.ConditionalValue(type="percent", value=50),
+                    ],
+                    show_value=True,
+                    percent=False,
+                    reverse=True,
+                ),
+            ),
+        ],
+    )
+
+    md = render_sheet_md(sheet, [], [], [], [])
+
+    assert (
+        "colorScale(conditions=[min, percentile=50 (gte=false), max], "
+        "colors=[rgb=FFFF0000, theme=2 (tint=-0.25), indexed=3])" in md
+    )
+    assert (
+        "dataBar(conditions=[min, max], color=auto=true, showValue=false, length=10-90)" in md
+    )
+    assert (
+        "iconSet(style=3TrafficLights1, conditions=[num=0, percent=50], "
+        "showValue=true, percent=false, reverse=true)" in md
+    )
+
+
+def test_multirange_conditional_format_annotation_still_follows_formula_summary():
+    ann = SheetAnnotations(
+        sheet="s",
+        targets=[AnnotationTarget(range="G1:G9", kind="alert_action", note="担当へ連絡")],
+    )
+    sheet = ir.Sheet(
+        name="s",
+        used_range="A1:G9",
+        cells=[ir.Cell(ref="A1", value="x")],
+        conditional_formats=[
+            ir.ConditionalFormat(
+                range="F1:F9 G1:G9",
+                rule_type="expression",
+                formulas=["F1<0", "G1<0"],
+            )
+        ],
+    )
+
+    md = render_sheet_md(sheet, [], [], [], [], ann)
+
+    assert "条件: F1<0, G1<0" in md
+    assert "担当へ連絡" in md
+
+
 def test_readme_warns_on_gaps():
     wb = ir.Workbook(source_file="a.xlsx", sha256="00" * 32,
                      sheets=[ir.Sheet(name="s")], extraction_gaps=["x の抽出に失敗"])
