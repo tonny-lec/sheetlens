@@ -1,11 +1,11 @@
 import openpyxl
 import pytest
 from openpyxl.workbook.defined_name import DefinedName
-from openpyxl.formatting.rule import CellIsRule
-from openpyxl.styles import PatternFill
+from openpyxl.formatting.rule import CellIsRule, FormulaRule
+from openpyxl.styles import Border, Font, PatternFill, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from sheetlens.reader.features import read_validations
+from sheetlens.reader.features import read_conditional_formats, read_validations
 from sheetlens.reader.workbook import read_workbook
 
 
@@ -46,6 +46,110 @@ def test_validations_and_conditional_formats(make_xlsx):
     assert cf.rule_type == "cellIs"
     assert cf.operator == "lessThan"
     assert cf.formula == "0"
+
+
+def test_conditional_formats_preserve_all_formulas_ranges_and_dxf(make_xlsx):
+    def build(wb):
+        ws = wb.active
+        ws.title = "入力"
+        red = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid")
+        thin = Side(style="thin", color="FF00FF00")
+        ws.conditional_formatting.add(
+            "A1:A3 C1:C3",
+            CellIsRule(
+                operator="between",
+                formula=["1", "10"],
+                stopIfTrue=True,
+                font=Font(bold=True, color="FF0000FF"),
+                fill=red,
+                border=Border(left=thin),
+            ),
+        )
+        ws.conditional_formatting.add("D1:D3", FormulaRule(formula=["D1>0", "D1<10"]))
+
+    workbook = read_workbook(make_xlsx(build))
+    rules = workbook.sheets[0].conditional_formats
+
+    assert rules[0].range == "A1:A3 C1:C3"
+    assert rules[0].formulas == ["1", "10"]
+    assert rules[0].operator == "between"
+    assert rules[0].stop_if_true is True
+    assert rules[0].dxf is not None
+    assert rules[0].dxf.tag.endswith("dxf")
+    child_tags = [child.tag.rsplit("}", 1)[-1] for child in rules[0].dxf.children]
+    assert child_tags == ["font", "fill", "border"]
+    assert any(
+        descendant.attributes.get("rgb") == "FF0000FF"
+        for child in rules[0].dxf.children
+        for descendant in child.children
+    )
+    assert rules[1].formulas == ["D1>0", "D1<10"]
+    assert workbook.extraction_gaps == []
+
+
+def test_conditional_format_dxf_failure_adds_gap_and_keeps_rule(monkeypatch):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "入力"
+    ws.conditional_formatting.add(
+        "A1",
+        CellIsRule(
+            operator="lessThan",
+            formula=["0"],
+            fill=PatternFill(fill_type="solid", fgColor="FFFF0000"),
+        ),
+    )
+    rule = next(iter(ws.conditional_formatting)).rules[0]
+    monkeypatch.setattr(
+        type(rule.dxf),
+        "to_tree",
+        lambda self: (_ for _ in ()).throw(RuntimeError("broken dxf")),
+    )
+    gaps = ["既存gap"]
+
+    extracted = read_conditional_formats(ws, extraction_gaps=gaps)
+
+    assert extracted[0].formulas == ["0"]
+    assert extracted[0].dxf is None
+    assert gaps == [
+        "既存gap",
+        "入力: 条件付き書式 A1 を完全に抽出できません (type=cellIs; reason=invalid_dxf)",
+    ]
+
+
+def test_conditional_format_rule_failure_keeps_later_rule():
+    class BrokenRule:
+        type = "expression"
+
+        @property
+        def formula(self):
+            raise RuntimeError("broken formula")
+
+    class GoodRule:
+        type = "expression"
+        formula = ["A1>0"]
+        operator = None
+        stopIfTrue = False
+        dxf = None
+
+    class Format:
+        sqref = "A1:A2"
+        rules = [BrokenRule(), GoodRule()]
+
+    class Worksheet:
+        title = "入力"
+        conditional_formatting = [Format()]
+
+    gaps: list[str] = []
+    extracted = read_conditional_formats(Worksheet(), extraction_gaps=gaps)
+
+    assert [(rule.rule_type, rule.formulas) for rule in extracted] == [
+        ("expression", []),
+        ("expression", ["A1>0"]),
+    ]
+    assert gaps == [
+        "入力: 条件付き書式 A1:A2 を完全に抽出できません (type=expression; reason=extraction_error)"
+    ]
 
 
 def test_resolves_workbook_name_case_insensitively_and_quoted_sheet(make_xlsx):

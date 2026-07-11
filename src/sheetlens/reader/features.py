@@ -214,18 +214,73 @@ def read_validations(
     return rules
 
 
-def read_conditional_formats(ws_f) -> list[ir.ConditionalFormat]:
+def _normalize_xml_node(element) -> ir.OoxmlNode:
+    return ir.OoxmlNode(
+        tag=str(element.tag),
+        attributes={str(key): str(value) for key, value in element.attrib.items()},
+        text=None if element.text is None else str(element.text),
+        children=[_normalize_xml_node(child) for child in element],
+    )
+
+
+def _format_conditional_format_gap(
+    sheet: str,
+    target_range: str,
+    rule_type: str,
+    reason: str,
+) -> str:
+    return (
+        f"{sheet}: 条件付き書式 {target_range} を完全に抽出できません "
+        f"(type={rule_type}; reason={reason})"
+    )
+
+
+def read_conditional_formats(
+    ws_f,
+    *,
+    extraction_gaps: list[str] | None = None,
+) -> list[ir.ConditionalFormat]:
+    gap_sink = [] if extraction_gaps is None else extraction_gaps
     out: list[ir.ConditionalFormat] = []
     for fmt in ws_f.conditional_formatting:
         for rule in fmt.rules:
-            formulas = list(getattr(rule, "formula", None) or [])
-            out.append(
-                ir.ConditionalFormat(
-                    range=str(fmt.sqref),
-                    rule_type=rule.type or "unknown",
-                    operator=getattr(rule, "operator", None),
-                    formula=formulas[0] if formulas else None,
-                    stop_if_true=bool(rule.stopIfTrue),
+            target_range = str(fmt.sqref)
+            rule_type = getattr(rule, "type", None) or "unknown"
+            reason: str | None = None
+            try:
+                formulas = [str(formula) for formula in (getattr(rule, "formula", None) or [])]
+                dxf = None
+                raw_dxf = getattr(rule, "dxf", None)
+                if raw_dxf is not None:
+                    try:
+                        dxf = _normalize_xml_node(raw_dxf.to_tree())
+                    except Exception:  # noqa: BLE001 — preserve the rest of the rule
+                        reason = "invalid_dxf"
+                out.append(
+                    ir.ConditionalFormat(
+                        range=target_range,
+                        rule_type=rule_type,
+                        operator=getattr(rule, "operator", None),
+                        formulas=formulas,
+                        stop_if_true=bool(getattr(rule, "stopIfTrue", False)),
+                        dxf=dxf,
+                    )
                 )
-            )
+            except Exception:  # noqa: BLE001 — isolate each rule and keep later rules
+                reason = "extraction_error"
+                out.append(
+                    ir.ConditionalFormat(
+                        range=target_range,
+                        rule_type=rule_type,
+                    )
+                )
+            if reason is not None:
+                gap_sink.append(
+                    _format_conditional_format_gap(
+                        ws_f.title,
+                        target_range,
+                        rule_type,
+                        reason,
+                    )
+                )
     return out

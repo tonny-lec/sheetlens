@@ -63,7 +63,7 @@ def read_workbook(path: Path) -> ir.Workbook:
             validations = []
             gaps.append(f"{ws_f.title}: 入力規則の抽出に失敗 ({e})")
         try:
-            cformats = read_conditional_formats(ws_f)
+            cformats = read_conditional_formats(ws_f, extraction_gaps=gaps)
         except Exception as e:  # noqa: BLE001
             cformats = []
             gaps.append(f"{ws_f.title}: 条件付き書式の抽出に失敗 ({e})")
