@@ -235,6 +235,102 @@ def _format_conditional_format_gap(
     )
 
 
+def _normalize_conditional_value(value) -> ir.ConditionalValue:
+    raw_value = getattr(value, "val")
+    if raw_value is not None and not isinstance(raw_value, (str, int, float)):
+        raise ValueError("invalid conditional value")
+    return ir.ConditionalValue(
+        type=getattr(value, "type"),
+        value=raw_value,
+        gte=getattr(value, "gte", None),
+    )
+
+
+def _normalize_conditional_color(color) -> ir.ConditionalColor:
+    color_type = getattr(color, "type")
+    value = getattr(color, "value")
+    if color_type not in {"rgb", "theme", "indexed", "auto"}:
+        raise ValueError("invalid color type")
+    if not isinstance(value, (str, int, float, bool)):
+        raise ValueError("invalid color value")
+    return ir.ConditionalColor(
+        type=color_type,
+        value=value,
+        tint=float(getattr(color, "tint", 0.0)),
+    )
+
+
+def _normalize_color_scale(payload) -> ir.ConditionalColorScale:
+    values = list(getattr(payload, "cfvo"))
+    colors = list(getattr(payload, "color"))
+    if not values or len(values) != len(colors):
+        raise ValueError("conditions and colors must be non-empty and aligned")
+    return ir.ConditionalColorScale(
+        conditions=[_normalize_conditional_value(value) for value in values],
+        colors=[_normalize_conditional_color(color) for color in colors],
+    )
+
+
+def _normalize_data_bar(payload) -> ir.ConditionalDataBar:
+    values = list(getattr(payload, "cfvo"))
+    if len(values) != 2:
+        raise ValueError("data bar requires start and end conditions")
+    color = getattr(payload, "color")
+    if color is None:
+        raise ValueError("data bar requires a color")
+    return ir.ConditionalDataBar(
+        conditions=[_normalize_conditional_value(value) for value in values],
+        color=_normalize_conditional_color(color),
+        show_value=getattr(payload, "showValue", None),
+        min_length=getattr(payload, "minLength", None),
+        max_length=getattr(payload, "maxLength", None),
+    )
+
+
+def _normalize_icon_set(payload) -> ir.ConditionalIconSet:
+    values = list(getattr(payload, "cfvo"))
+    icon_style = getattr(payload, "iconSet")
+    if not values or not icon_style:
+        raise ValueError("icon set requires a style and conditions")
+    return ir.ConditionalIconSet(
+        icon_style=icon_style,
+        conditions=[_normalize_conditional_value(value) for value in values],
+        show_value=getattr(payload, "showValue", None),
+        percent=getattr(payload, "percent", None),
+        reverse=getattr(payload, "reverse", None),
+    )
+
+
+def _normalize_visual_payload(rule, rule_type: str):
+    if rule_type == "colorScale":
+        payload = getattr(rule, "colorScale", None)
+        if payload is None:
+            return {}, "missing_color_scale"
+        try:
+            return {"color_scale": _normalize_color_scale(payload)}, None
+        except (AttributeError, TypeError, ValueError):
+            return {}, "invalid_color_scale"
+    if rule_type == "dataBar":
+        payload = getattr(rule, "dataBar", None)
+        if payload is None:
+            return {}, "missing_data_bar"
+        try:
+            return {"data_bar": _normalize_data_bar(payload)}, None
+        except (AttributeError, TypeError, ValueError):
+            return {}, "invalid_data_bar"
+    if rule_type == "iconSet":
+        payload = getattr(rule, "iconSet", None)
+        if payload is None:
+            return {}, "missing_icon_set"
+        try:
+            return {"icon_set": _normalize_icon_set(payload)}, None
+        except (AttributeError, TypeError, ValueError):
+            return {}, "invalid_icon_set"
+    if rule_type not in {"cellIs", "expression"}:
+        return {}, "unsupported_type"
+    return {}, None
+
+
 def read_conditional_formats(
     ws_f,
     *,
@@ -256,6 +352,12 @@ def read_conditional_formats(
                         dxf = _normalize_xml_node(raw_dxf.to_tree())
                     except Exception:  # noqa: BLE001 — preserve the rest of the rule
                         reason = "invalid_dxf"
+                visual_payload, payload_reason = _normalize_visual_payload(
+                    rule,
+                    rule_type,
+                )
+                if payload_reason is not None:
+                    reason = payload_reason
                 out.append(
                     ir.ConditionalFormat(
                         range=target_range,
@@ -264,6 +366,7 @@ def read_conditional_formats(
                         formulas=formulas,
                         stop_if_true=bool(getattr(rule, "stopIfTrue", False)),
                         dxf=dxf,
+                        **visual_payload,
                     )
                 )
             except Exception:  # noqa: BLE001 — isolate each rule and keep later rules

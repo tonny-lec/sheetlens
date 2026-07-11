@@ -1,8 +1,16 @@
 import openpyxl
 import pytest
 from openpyxl.workbook.defined_name import DefinedName
-from openpyxl.formatting.rule import CellIsRule, FormulaRule
-from openpyxl.styles import Border, Font, PatternFill, Side
+from openpyxl.formatting.rule import (
+    CellIsRule,
+    ColorScaleRule,
+    DataBarRule,
+    FormulaRule,
+    IconSetRule,
+    Rule,
+)
+from openpyxl.styles import Border, Color, Font, PatternFill, Side
+from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from sheetlens.reader.features import read_conditional_formats, read_validations
@@ -149,6 +157,179 @@ def test_conditional_format_rule_failure_keeps_later_rule():
     ]
     assert gaps == [
         "入力: 条件付き書式 A1:A2 を完全に抽出できません (type=expression; reason=extraction_error)"
+    ]
+
+
+def test_conditional_format_visual_payloads_survive_workbook_round_trip(make_xlsx):
+    def build(wb):
+        ws = wb.active
+        ws.title = "入力"
+        ws.conditional_formatting.add(
+            "A1:A3",
+            ColorScaleRule(
+                start_type="min",
+                start_color=Color(theme=4, tint=0.25),
+                mid_type="percentile",
+                mid_value=50,
+                mid_color=Color(indexed=7),
+                end_type="max",
+                end_color="FFFF0000",
+            ),
+        )
+        data_bar = DataBarRule(
+            start_type="min",
+            end_type="max",
+            color="FF638EC6",
+            showValue=False,
+            minLength=5,
+            maxLength=95,
+        )
+        data_bar.dataBar.color = Color(auto=True)
+        ws.conditional_formatting.add("B1:B3", data_bar)
+        ws.conditional_formatting.add(
+            "C1:C3",
+            IconSetRule(
+                icon_style="3TrafficLights1",
+                type="percent",
+                values=[0, 33, 67],
+                showValue=False,
+                percent=True,
+                reverse=True,
+            ),
+        )
+
+    workbook = read_workbook(make_xlsx(build))
+    rules = workbook.sheets[0].conditional_formats
+
+    scale = rules[0].color_scale
+    assert scale is not None
+    assert [(v.type, v.value, v.gte) for v in scale.conditions] == [
+        ("min", None, None),
+        ("percentile", 50.0, None),
+        ("max", None, None),
+    ]
+    assert [(c.type, c.value, c.tint) for c in scale.colors] == [
+        ("theme", 4, 0.25),
+        ("indexed", 7, 0.0),
+        ("rgb", "FFFF0000", 0.0),
+    ]
+    bar = rules[1].data_bar
+    assert bar is not None
+    assert [value.type for value in bar.conditions] == ["min", "max"]
+    assert (bar.color.type, bar.color.value) == ("auto", True)
+    assert (bar.show_value, bar.min_length, bar.max_length) == (False, 5, 95)
+    icons = rules[2].icon_set
+    assert icons is not None
+    assert icons.icon_style == "3TrafficLights1"
+    assert [value.value for value in icons.conditions] == [0.0, 33.0, 67.0]
+    assert (icons.show_value, icons.percent, icons.reverse) == (False, True, True)
+    assert workbook.extraction_gaps == []
+
+
+@pytest.mark.parametrize(
+    ("rule_type", "payload_name", "payload", "reason"),
+    [
+        ("colorScale", "colorScale", None, "missing_color_scale"),
+        ("colorScale", "colorScale", object(), "invalid_color_scale"),
+        ("dataBar", "dataBar", None, "missing_data_bar"),
+        ("dataBar", "dataBar", object(), "invalid_data_bar"),
+        ("iconSet", "iconSet", None, "missing_icon_set"),
+        ("iconSet", "iconSet", object(), "invalid_icon_set"),
+    ],
+)
+def test_conditional_format_malformed_payload_reason(
+    rule_type, payload_name, payload, reason
+):
+    class Rule:
+        type = rule_type
+        formula = []
+        operator = None
+        stopIfTrue = False
+        dxf = None
+
+    setattr(Rule, payload_name, payload)
+
+    class Format:
+        sqref = "A1"
+        rules = [Rule()]
+
+    class Worksheet:
+        title = "入力"
+        conditional_formatting = [Format()]
+
+    gaps: list[str] = []
+    extracted = read_conditional_formats(Worksheet(), extraction_gaps=gaps)
+
+    assert len(extracted) == 1
+    assert gaps == [
+        f"入力: 条件付き書式 A1 を完全に抽出できません (type={rule_type}; reason={reason})"
+    ]
+
+
+def test_conditional_format_unsupported_rule_keeps_common_fields_and_one_gap():
+    class Rule:
+        type = "top10"
+        formula = ["A1"]
+        operator = None
+        stopIfTrue = True
+        dxf = None
+
+    class Format:
+        sqref = "A1:A3"
+        rules = [Rule()]
+
+    class Worksheet:
+        title = "入力"
+        conditional_formatting = [Format()]
+
+    gaps: list[str] = []
+    extracted = read_conditional_formats(Worksheet(), extraction_gaps=gaps)
+
+    assert extracted[0].formulas == ["A1"]
+    assert extracted[0].stop_if_true is True
+    assert len(gaps) == 1
+    assert "reason=unsupported_type" in gaps[0]
+
+
+def test_conditional_format_dxf_failure_keeps_visual_payload(monkeypatch):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "入力"
+    rule = ColorScaleRule(
+        start_type="min",
+        start_color="FF00FF00",
+        end_type="max",
+        end_color="FFFF0000",
+    )
+    rule.dxf = DifferentialStyle(font=Font(bold=True))
+    ws.conditional_formatting.add("A1:A3", rule)
+    monkeypatch.setattr(
+        type(rule.dxf),
+        "to_tree",
+        lambda self: (_ for _ in ()).throw(RuntimeError("broken dxf")),
+    )
+    gaps: list[str] = []
+
+    extracted = read_conditional_formats(ws, extraction_gaps=gaps)
+
+    assert extracted[0].dxf is None
+    assert extracted[0].color_scale is not None
+    assert len(gaps) == 1
+    assert "reason=invalid_dxf" in gaps[0]
+
+
+def test_conditional_format_rule_gap_reaches_workbook(make_xlsx):
+    def build(wb):
+        ws = wb.active
+        ws.title = "入力"
+        ws.conditional_formatting.add("A1", Rule(type="colorScale"))
+
+    workbook = read_workbook(make_xlsx(build))
+
+    assert len(workbook.sheets[0].conditional_formats) == 1
+    assert workbook.extraction_gaps == [
+        "入力: 条件付き書式 A1 を完全に抽出できません "
+        "(type=colorScale; reason=missing_color_scale)"
     ]
 
 
