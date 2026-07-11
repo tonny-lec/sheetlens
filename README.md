@@ -116,6 +116,8 @@ uv run ruff check .    # Lint
 
 v1（初期実装）。既知の制限:
 
-- VBA 抽出の実 .xlsm での検証は未了（正常系はモックテスト）
+- VBA の静的抽出は再配布可能な実 `.xlsm` fixture で検証しています。Windows CI と
+  業務 PC の実行確認は環境制約により延期しています。詳細は
+  [Windows XLSM acceptance](docs/qa/windows-xlsm-acceptance.md) を参照してください
 - QA 評価（A/B 比較）は未実施
 - .xls（旧形式）・パスワード保護ファイル・グラフ/図形/ピボットの詳細抽出は対象外
