@@ -1,0 +1,4 @@
+interface:
+  display_name: "Finish Project Issue"
+  short_description: "Commit and locally integrate one completed SheetLens issue"
+  default_prompt: "Use $finish-project-issue to verify, commit, and locally integrate the completed SheetLens issue."
