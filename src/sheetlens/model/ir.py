@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, model_validator
 
 Primitive = str | int | float | bool | None
 
@@ -18,12 +20,80 @@ class ValidationRule(BaseModel):
     choices: list[str] = Field(default_factory=list)
 
 
+class ConditionalValue(BaseModel):
+    type: str | None = None
+    value: str | float | int | None = None
+    gte: bool | None = None
+
+
+class ConditionalColor(BaseModel):
+    type: str
+    value: str | float | int | bool
+    tint: float = 0.0
+
+
+class ConditionalColorScale(BaseModel):
+    conditions: list[ConditionalValue] = Field(default_factory=list)
+    colors: list[ConditionalColor] = Field(default_factory=list)
+
+
+class ConditionalDataBar(BaseModel):
+    conditions: list[ConditionalValue] = Field(default_factory=list)
+    color: ConditionalColor
+    show_value: bool | None = None
+    min_length: int | None = None
+    max_length: int | None = None
+
+
+class ConditionalIconSet(BaseModel):
+    icon_style: str | None = None
+    conditions: list[ConditionalValue] = Field(default_factory=list)
+    show_value: bool | None = None
+    percent: bool | None = None
+    reverse: bool | None = None
+
+
+class OoxmlNode(BaseModel):
+    tag: str
+    attributes: dict[str, str] = Field(default_factory=dict)
+    text: str | None = None
+    children: list[OoxmlNode] = Field(default_factory=list)
+
+
 class ConditionalFormat(BaseModel):
     range: str
     rule_type: str
     operator: str | None = None
-    formula: str | None = None
+    formulas: list[str] = Field(default_factory=list)
     stop_if_true: bool = False
+    color_scale: ConditionalColorScale | None = None
+    data_bar: ConditionalDataBar | None = None
+    icon_set: ConditionalIconSet | None = None
+    dxf: OoxmlNode | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_formula(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        migrated = dict(data)
+        legacy_formula = migrated.pop("formula", None)
+        if "formulas" not in migrated:
+            migrated["formulas"] = [] if legacy_formula is None else [legacy_formula]
+        return migrated
+
+    @property
+    def formula(self) -> str | None:
+        return self.formulas[0] if self.formulas else None
+
+    @formula.setter
+    def formula(self, value: str | None) -> None:
+        if value is None:
+            self.formulas = []
+        elif self.formulas:
+            self.formulas[0] = value
+        else:
+            self.formulas = [value]
 
 
 class VbaModule(BaseModel):
