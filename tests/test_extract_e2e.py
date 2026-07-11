@@ -129,7 +129,7 @@ def test_extract_generates_project(make_xlsx):
     assert manifest["dependencies"]["見積入力"] == ["単価マスタ"]
     md = (proj / "structure/sheet-見積入力.md").read_text(encoding="utf-8")
     assert "[A1:C1 結合]" in md
-    assert "=C{row}*D{row}" in md
+    assert "=R[0]C[-2]*R[0]C[-1]" in md
     assert "通常" in md
     questions = (proj / "questions.md").read_text(encoding="utf-8")
     assert "dropdown_semantics" in questions and "sheet_role" in questions

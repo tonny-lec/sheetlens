@@ -4,6 +4,18 @@ from pydantic import ValidationError
 from sheetlens.model import ir
 
 
+def test_dependency_edge_roundtrip_keeps_resolution_fields():
+    edge = ir.DependencyEdge(
+        source="cell:'Input'!A1",
+        target_workbook="Book.xlsx",
+        target_sheet="Rates",
+        target_range="$A$1:$A$9",
+        unresolved=True,
+    )
+
+    assert ir.DependencyEdge.model_validate(edge.model_dump()) == edge
+
+
 def test_sheet_artifacts_roundtrip_normalize_parts_and_legacy_input():
     artifact = ir.SheetArtifact(
         type="image",

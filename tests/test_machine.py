@@ -136,6 +136,41 @@ def test_external_references_index_form():
     assert external_references(wb) == ["外部ブック[1]（インデックス形式・未解決）"]
 
 
+def test_external_same_name_sheet_is_not_a_local_dependency():
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[
+            ir.Sheet(
+                name="入力",
+                cells=[ir.Cell(ref="A1", formula="=[Other.xlsx]マスタ!B2")],
+            ),
+            ir.Sheet(name="マスタ"),
+        ],
+    )
+
+    assert sheet_dependencies(wb) == {"入力": [], "マスタ": []}
+    assert external_references(wb) == ["Other.xlsx"]
+
+
+def test_external_references_keep_path_and_defined_name_books():
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[
+            ir.Sheet(
+                name="入力",
+                cells=[
+                    ir.Cell(ref="A1", formula="='C:\\\\dir\\\\[Book.xlsx]Sheet'!A1"),
+                    ir.Cell(ref="A2", formula="=[Book.xlsx]RateName"),
+                ],
+            )
+        ],
+    )
+
+    assert external_references(wb) == ["Book.xlsx"]
+
+
 def test_manifest_shape():
     m = build_manifest(_wb())
     assert m["source_file"] == "a.xlsx"
@@ -155,6 +190,7 @@ def test_manifest_shape():
     }
     assert m["sheets"][1]["artifacts"] == []
     assert m["dependencies"]["見積入力"] == ["単価マスタ"]
+    assert m["dependency_edges"]
     assert m["external_refs"] == ["原価表.xlsx"]
     assert m["extraction_gaps"] == ["gap1"]
     assert m["vba_modules"] == ["Module1.bas"]

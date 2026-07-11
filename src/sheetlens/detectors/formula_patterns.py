@@ -1,14 +1,11 @@
-import re
 from collections import defaultdict
 
 from openpyxl.utils import coordinate_to_tuple, get_column_letter
 from pydantic import BaseModel, Field
 
 from sheetlens.detectors.util import runs
+from sheetlens.formulas import normalize_formula
 from sheetlens.model import ir
-
-_STRING_RE = re.compile(r'("(?:[^"]|"")*")')
-_ROW_RE = re.compile(r"(?<![A-Za-z0-9_$])(\$?[A-Z]{1,3})\d+(?![\w(])")
 
 
 class FormulaPattern(BaseModel):
@@ -16,13 +13,6 @@ class FormulaPattern(BaseModel):
     pattern: str
     example: str
     exceptions: list[str] = Field(default_factory=list)
-
-
-def _normalize(formula: str) -> str:
-    parts = _STRING_RE.split(formula)
-    for i in range(0, len(parts), 2):  # 偶数インデックスのみ（文字列リテラルの外側）
-        parts[i] = _ROW_RE.sub(lambda m: m.group(1) + "{row}", parts[i])
-    return "".join(parts)
 
 
 def aggregate_formulas(sheet: ir.Sheet) -> list[FormulaPattern]:
@@ -37,7 +27,7 @@ def aggregate_formulas(sheet: ir.Sheet) -> list[FormulaPattern]:
         items.sort(key=lambda t: t[0])
         groups: dict[str, list[tuple[int, ir.Cell]]] = defaultdict(list)
         for row, cell in items:
-            groups[_normalize(cell.formula)].append((row, cell))
+            groups[normalize_formula(cell.formula, origin=cell.ref)].append((row, cell))
         majority = max(groups, key=lambda k: len(groups[k]))
         main_rows = [r for r, _ in groups[majority]]
         main = FormulaPattern(

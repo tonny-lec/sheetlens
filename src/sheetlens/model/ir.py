@@ -185,6 +185,14 @@ class ButtonLink(BaseModel):
     macro: str
 
 
+class DependencyEdge(BaseModel):
+    source: str
+    target_workbook: str | None = None
+    target_sheet: str | None = None
+    target_range: str | None = None
+    unresolved: bool = False
+
+
 class SheetArtifact(BaseModel):
     type: Literal["chart", "image", "shape", "pivot"]
     count: int = Field(gt=0)

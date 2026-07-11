@@ -12,7 +12,7 @@ def test_uniform_column_collapses_to_one_pattern():
     pats = aggregate_formulas(_sheet(cells))
     assert len(pats) == 1
     assert pats[0].ranges == ["E11:E30"]
-    assert pats[0].pattern == "=C{row}*D{row}"
+    assert pats[0].pattern == "=R[0]C[-2]*R[0]C[-1]"
     assert pats[0].example == "=C11*D11"
     assert pats[0].exceptions == []
 
@@ -30,7 +30,9 @@ def test_absolute_refs_normalized():
     cells = [ir.Cell(ref=f"D{r}", formula=f"=VLOOKUP(B{r},単価マスタ!$A$2:$C$9,3,FALSE)") for r in (2, 3)]
     pats = aggregate_formulas(_sheet(cells))
     assert len(pats) == 1
-    assert pats[0].pattern == "=VLOOKUP(B{row},単価マスタ!$A$2:$C$9,3,FALSE)"
+    assert pats[0].pattern == (
+        "=VLOOKUP(R[0]C[-2],単価マスタ!R2C1:R9C3,3,FALSE)"
+    )
 
 
 def test_absolute_range_deviation_detected():
@@ -49,7 +51,7 @@ def test_function_names_and_string_literals_survive():
     cells = [ir.Cell(ref=f"D{r}", formula=f'=LOG10(A{r})+IF(B{r}="AB123",1,0)') for r in (2, 3)]
     pats = aggregate_formulas(_sheet(cells))
     assert len(pats) == 1
-    assert pats[0].pattern == '=LOG10(A{row})+IF(B{row}="AB123",1,0)'
+    assert pats[0].pattern == '=LOG10(R[0]C[-3])+IF(R[0]C[-2]="AB123",1,0)'
 
 
 def test_out_of_range_minority_aggregated_into_ranges():
@@ -57,7 +59,7 @@ def test_out_of_range_minority_aggregated_into_ranges():
     cells += [ir.Cell(ref=f"E{r}", formula=f"=SUM(A{r}:D{r})") for r in (25, 26)]
     pats = aggregate_formulas(_sheet(cells))
     assert len(pats) == 2
-    minority = next(p for p in pats if p.pattern == "=SUM(A{row}:D{row})")
+    minority = next(p for p in pats if p.pattern == "=SUM(R[0]C[-4]:R[0]C[-1])")
     assert minority.ranges == ["E25:E26"]
 
 

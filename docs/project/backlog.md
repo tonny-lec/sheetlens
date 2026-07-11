@@ -18,7 +18,7 @@
 | [SL-018](items/SL-018-autonomous-git-completion.md) | P1 | done | M4 | Codexによる課題完了時の自動Git統合 | — | — |
 | [SL-009](items/SL-009-structural-range.md) | P2 | done | M2 | structural range と非表示範囲の修正 | — | — |
 | [SL-010](items/SL-010-vml-buttons.md) | P2 | done | M2 | VML ボタン抽出の XML 解析化 | — | — |
-| [SL-012](items/SL-012-formula-dependency-parser.md) | P2 | ready | M3 | 数式正規化と依存グラフの token 解析化 | — | — |
+| [SL-012](items/SL-012-formula-dependency-parser.md) | P2 | done | M3 | 数式正規化と依存グラフの token 解析化 | — | — |
 | [SL-013](items/SL-013-atomic-extract-cli-errors.md) | P2 | ready | M3 | アトミック再抽出と CLI エラー統一 | — | — |
 | [SL-016](items/SL-016-golden-ci-quality.md) | P2 | ready | M4 | golden test と CI 品質ゲート | — | — |
 | [SL-019](items/SL-019-process-project-backlog.md) | P2 | done | M4 | backlog 課題の自動直列処理 | — | — |
