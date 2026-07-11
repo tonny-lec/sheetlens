@@ -30,7 +30,12 @@ def sheet_dependencies(wb: ir.Workbook) -> dict[str, list[str]]:
         found: set[str] = set()
         texts = [cell.formula for cell in sheet.cells if cell.formula]
         texts.extend(v.formula1 for v in sheet.validations if v.formula1)
-        texts.extend(cf.formula for cf in sheet.conditional_formats if cf.formula)
+        texts.extend(
+            formula
+            for cf in sheet.conditional_formats
+            for formula in cf.formulas
+            if formula
+        )
         for text in texts:
             for name in names:
                 if name != sheet.name and patterns[name].search(text):

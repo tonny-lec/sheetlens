@@ -82,6 +82,49 @@ def test_dependencies_include_validation_and_cf():
     assert sheet_dependencies(wb)["入力"] == ["判定", "区分マスタ"]
 
 
+def test_dependencies_include_every_conditional_format_formula():
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[
+            ir.Sheet(
+                name="入力",
+                conditional_formats=[
+                    ir.ConditionalFormat(
+                        range="F1:F9",
+                        rule_type="expression",
+                        formulas=["A1>0", "判定!$A$1>0"],
+                    )
+                ],
+            ),
+            ir.Sheet(name="判定"),
+        ],
+    )
+
+    assert sheet_dependencies(wb)["入力"] == ["判定"]
+
+
+def test_dependencies_allow_conditional_format_without_formulas():
+    wb = ir.Workbook(
+        source_file="a.xlsx",
+        sha256="00" * 32,
+        sheets=[
+            ir.Sheet(
+                name="入力",
+                conditional_formats=[
+                    ir.ConditionalFormat(
+                        range="F1:F9",
+                        rule_type="colorScale",
+                        formulas=[],
+                    )
+                ],
+            )
+        ],
+    )
+
+    assert sheet_dependencies(wb) == {"入力": []}
+
+
 def test_external_references_index_form():
     wb = ir.Workbook(
         source_file="a.xlsx",
