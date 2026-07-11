@@ -1,0 +1,6 @@
+interface:
+  display_name: "Process Project Backlog"
+  short_description: "Process SheetLens backlog issues safely in sequence"
+  default_prompt: "Use $process-project-backlog to process eligible SheetLens backlog issues safely in sequence."
+policy:
+  allow_implicit_invocation: false
