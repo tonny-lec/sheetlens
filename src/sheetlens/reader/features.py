@@ -237,7 +237,9 @@ def _format_conditional_format_gap(
 
 def _normalize_conditional_value(value) -> ir.ConditionalValue:
     raw_value = getattr(value, "val")
-    if raw_value is not None and not isinstance(raw_value, (str, int, float)):
+    if isinstance(raw_value, bool) or (
+        raw_value is not None and not isinstance(raw_value, (str, int, float))
+    ):
         raise ValueError("invalid conditional value")
     return ir.ConditionalValue(
         type=getattr(value, "type"),
@@ -340,31 +342,70 @@ def read_conditional_formats(
     out: list[ir.ConditionalFormat] = []
     for fmt in ws_f.conditional_formatting:
         for rule in fmt.rules:
-            target_range = str(fmt.sqref)
-            rule_type = getattr(rule, "type", None) or "unknown"
+            target_range = "unknown"
+            rule_type = "unknown"
+            formulas: list[str] = []
+            operator = None
+            stop_if_true = False
+            dxf = None
+            visual_payload = {}
             reason: str | None = None
+
+            try:
+                target_range = str(fmt.sqref)
+            except Exception:  # noqa: BLE001 — retain a minimal rule and continue
+                reason = "extraction_error"
+
+            type_available = True
+            try:
+                rule_type = getattr(rule, "type", None) or "unknown"
+            except Exception:  # noqa: BLE001 — retain a minimal rule and continue
+                type_available = False
+                reason = "extraction_error"
+
             try:
                 formulas = [str(formula) for formula in (getattr(rule, "formula", None) or [])]
-                dxf = None
+            except Exception:  # noqa: BLE001 — retain fields extracted in other stages
+                reason = "extraction_error"
+
+            try:
                 raw_dxf = getattr(rule, "dxf", None)
                 if raw_dxf is not None:
-                    try:
-                        dxf = _normalize_xml_node(raw_dxf.to_tree())
-                    except Exception:  # noqa: BLE001 — preserve the rest of the rule
-                        reason = "invalid_dxf"
-                visual_payload, payload_reason = _normalize_visual_payload(
-                    rule,
-                    rule_type,
-                )
-                if payload_reason is not None:
-                    reason = payload_reason
+                    dxf = _normalize_xml_node(raw_dxf.to_tree())
+            except Exception:  # noqa: BLE001 — preserve the rest of the rule
+                if reason is None:
+                    reason = "invalid_dxf"
+
+            if type_available:
+                try:
+                    visual_payload, payload_reason = _normalize_visual_payload(
+                        rule,
+                        rule_type,
+                    )
+                    if payload_reason is not None:
+                        if reason in {None, "invalid_dxf"}:
+                            reason = payload_reason
+                except Exception:  # noqa: BLE001 — preserve earlier extraction stages
+                    reason = "extraction_error"
+
+            try:
+                operator = getattr(rule, "operator", None)
+            except Exception:  # noqa: BLE001 — preserve earlier extraction stages
+                reason = "extraction_error"
+
+            try:
+                stop_if_true = bool(getattr(rule, "stopIfTrue", False))
+            except Exception:  # noqa: BLE001 — preserve earlier extraction stages
+                reason = "extraction_error"
+
+            try:
                 out.append(
                     ir.ConditionalFormat(
                         range=target_range,
                         rule_type=rule_type,
-                        operator=getattr(rule, "operator", None),
+                        operator=operator,
                         formulas=formulas,
-                        stop_if_true=bool(getattr(rule, "stopIfTrue", False)),
+                        stop_if_true=stop_if_true,
                         dxf=dxf,
                         **visual_payload,
                     )

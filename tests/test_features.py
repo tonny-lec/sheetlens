@@ -160,6 +160,135 @@ def test_conditional_format_rule_failure_keeps_later_rule():
     ]
 
 
+@pytest.mark.parametrize("broken_field", ["sqref", "type"])
+def test_conditional_format_identity_failure_keeps_minimal_and_later_rule(broken_field):
+    class BrokenValue:
+        def __str__(self):
+            raise RuntimeError("broken range")
+
+    class BrokenRule:
+        formula = ["A1>0"]
+        operator = None
+        stopIfTrue = False
+        dxf = None
+
+        @property
+        def type(self):
+            if broken_field == "type":
+                raise RuntimeError("broken type")
+            return "expression"
+
+    class GoodRule:
+        type = "expression"
+        formula = ["B1>0"]
+        operator = None
+        stopIfTrue = False
+        dxf = None
+
+    class Format:
+        sqref = BrokenValue() if broken_field == "sqref" else "A1:A2"
+        rules = [BrokenRule(), GoodRule()]
+
+    class Worksheet:
+        title = "入力"
+        conditional_formatting = [Format()]
+
+    gaps: list[str] = []
+    extracted = read_conditional_formats(Worksheet(), extraction_gaps=gaps)
+
+    assert len(extracted) == 2
+    expected_range = "unknown" if broken_field == "sqref" else "A1:A2"
+    assert extracted[0].range == expected_range
+    assert extracted[0].rule_type == (
+        "unknown" if broken_field == "type" else "expression"
+    )
+    assert extracted[1].formulas == ["B1>0"]
+    expected_gap_count = 2 if broken_field == "sqref" else 1
+    assert len(gaps) == expected_gap_count
+    assert all("reason=extraction_error" in gap for gap in gaps)
+
+
+def test_conditional_format_late_getter_failure_preserves_extracted_payload():
+    visual_rule = ColorScaleRule(
+        start_type="min",
+        start_color="FF00FF00",
+        end_type="max",
+        end_color="FFFF0000",
+    )
+
+    class Rule:
+        type = "colorScale"
+        formula = ["A1>0"]
+        dxf = DifferentialStyle(font=Font(bold=True))
+        colorScale = visual_rule.colorScale
+        stopIfTrue = True
+
+        @property
+        def operator(self):
+            raise RuntimeError("broken operator")
+
+    class Format:
+        sqref = "A1:A3"
+        rules = [Rule()]
+
+    class Worksheet:
+        title = "入力"
+        conditional_formatting = [Format()]
+
+    gaps: list[str] = []
+    extracted = read_conditional_formats(Worksheet(), extraction_gaps=gaps)
+
+    assert extracted[0].formulas == ["A1>0"]
+    assert extracted[0].dxf is not None
+    assert extracted[0].color_scale is not None
+    assert extracted[0].stop_if_true is True
+    assert len(gaps) == 1
+    assert "reason=extraction_error" in gaps[0]
+
+
+def test_conditional_format_rejects_boolean_cfvo_as_invalid_payload():
+    visual_rule = ColorScaleRule(
+        start_type="min",
+        start_color="FF00FF00",
+        end_type="max",
+        end_color="FFFF0000",
+    )
+
+    class ConditionalValue:
+        type = "min"
+        val = True
+        gte = None
+
+    class Payload:
+        cfvo = [ConditionalValue(), visual_rule.colorScale.cfvo[1]]
+        color = visual_rule.colorScale.color
+
+    class Rule:
+        type = "colorScale"
+        formula = []
+        operator = None
+        stopIfTrue = False
+        dxf = None
+        colorScale = Payload()
+
+    class Format:
+        sqref = "A1:A3"
+        rules = [Rule()]
+
+    class Worksheet:
+        title = "入力"
+        conditional_formatting = [Format()]
+
+    gaps: list[str] = []
+    extracted = read_conditional_formats(Worksheet(), extraction_gaps=gaps)
+
+    assert extracted[0].color_scale is None
+    assert gaps == [
+        "入力: 条件付き書式 A1:A3 を完全に抽出できません "
+        "(type=colorScale; reason=invalid_color_scale)"
+    ]
+
+
 def test_conditional_format_visual_payloads_survive_workbook_round_trip(make_xlsx):
     def build(wb):
         ws = wb.active
