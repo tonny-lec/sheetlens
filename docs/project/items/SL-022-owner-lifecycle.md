@@ -1,7 +1,7 @@
 ---
 id: SL-022
 title: owner と status のライフサイクル再設計
-status: proposed
+status: ready
 priority: P1
 type: quality
 milestone: M4

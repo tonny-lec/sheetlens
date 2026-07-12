@@ -1,7 +1,7 @@
 ---
 id: SL-002
 title: kind 別注釈スキーマと重複シート処理
-status: proposed
+status: ready
 priority: P1
 type: defect
 milestone: M1

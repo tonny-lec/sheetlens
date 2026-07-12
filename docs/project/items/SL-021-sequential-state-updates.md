@@ -1,7 +1,7 @@
 ---
 id: SL-021
 title: 管理状態更新の直列化
-status: proposed
+status: ready
 priority: P1
 type: quality
 milestone: M4

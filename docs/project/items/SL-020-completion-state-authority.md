@@ -1,7 +1,7 @@
 ---
 id: SL-020
 title: 課題完了状態の権限と中断復旧
-status: proposed
+status: ready
 priority: P1
 type: quality
 milestone: M4
