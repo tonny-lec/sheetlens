@@ -278,7 +278,7 @@ def section_text(item: ProjectItem, name: str) -> str:
     )
 
 
-def _validation_section_text(item: ProjectItem, name: str) -> str:
+def validation_section_text(item: ProjectItem, name: str) -> str:
     content = next(
         (
             content
@@ -298,7 +298,12 @@ def _validation_section_text(item: ProjectItem, name: str) -> str:
     return "".join(lines)
 
 
-def _acceptance_criteria_structure_valid(text: str) -> bool:
+def _validation_section_text(item: ProjectItem, name: str) -> str:
+    """Backward-compatible private alias for the public validation helper."""
+    return validation_section_text(item, name)
+
+
+def acceptance_criteria_structure_valid(text: str) -> bool:
     criteria = LIST_ITEM_RE.findall(text)
     if not criteria:
         return False
@@ -306,6 +311,11 @@ def _acceptance_criteria_structure_valid(text: str) -> bool:
         TASK_CHECKBOX_RE.fullmatch(criterion.strip()) is not None
         for criterion in criteria
     )
+
+
+def _acceptance_criteria_structure_valid(text: str) -> bool:
+    """Backward-compatible private alias for the public acceptance helper."""
+    return acceptance_criteria_structure_valid(text)
 
 
 def _acceptance_criteria_all_checked(text: str) -> bool:
@@ -406,7 +416,7 @@ def dependency_closure(item_id: str, by_id: dict[str, ProjectItem]) -> set[str]:
     return seen
 
 
-def _graph_index(items: list[ProjectItem]) -> tuple[dict[str, ProjectItem], set[str]]:
+def graph_index(items: list[ProjectItem]) -> tuple[dict[str, ProjectItem], set[str]]:
     grouped: dict[str, list[ProjectItem]] = {}
     for item in items:
         grouped.setdefault(item.id, []).append(item)
@@ -417,6 +427,11 @@ def _graph_index(items: list[ProjectItem]) -> tuple[dict[str, ProjectItem], set[
         if item_id not in duplicate_ids
     }
     return by_id, duplicate_ids
+
+
+def _graph_index(items: list[ProjectItem]) -> tuple[dict[str, ProjectItem], set[str]]:
+    """Backward-compatible private alias for the public graph helper."""
+    return graph_index(items)
 
 
 def eligible_items(items: list[ProjectItem]) -> list[ProjectItem]:

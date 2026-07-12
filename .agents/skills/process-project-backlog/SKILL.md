@@ -39,6 +39,15 @@ condition occurs.
    - no issue is `in_progress`.
 9. Repeat from step 1 unless the requested issue limit has been reached.
 
+## Post-completion handoff
+
+When the loop ends normally because `$select-next-project-issue` reports `着手可能な課題なし`,
+and the clean-main, project-state, and no-active-issue checks in step 8 pass, invoke
+`$promote-ready-project-issues` once. Do not invoke it after an issue limit, blocker, failed
+verification, invalid state, or another stop condition. The handoff owns only proposed-to-ready
+promotion and its state-only persistence; it must not select or start a newly ready issue in the same
+invocation.
+
 ## Resume Rules
 
 - Resume an existing `in_progress` issue only when its owner, branch, and worktree changes are

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Promote Ready Project Issues"
+  short_description: "Promote validated SheetLens issues after backlog completion"
+  default_prompt: "Use $promote-ready-project-issues after process-project-backlog completes normally."
+policy:
+  allow_implicit_invocation: false
