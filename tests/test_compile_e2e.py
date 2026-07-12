@@ -183,6 +183,66 @@ def test_compile_rejects_broken_annotation(make_xlsx):
     assert "bad.yaml" in result.output
 
 
+def test_compile_rejects_duplicate_annotation_sheets(make_xlsx):
+    proj = _extract(make_xlsx)
+    (proj / "annotations" / "first.yaml").write_text("sheet: 見積入力\n", encoding="utf-8")
+    (proj / "annotations" / "second.yaml").write_text("sheet: 見積入力\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["compile", str(proj)])
+
+    assert result.exit_code == 1
+    assert "first.yaml" in result.output
+    assert "second.yaml" in result.output
+
+
+def test_compile_does_not_mark_answer_without_matching_content(make_xlsx):
+    proj = _extract(make_xlsx)
+    question_id = _sheet_role_id(proj)
+    annotation_path = proj / "annotations" / "見積入力.yaml"
+    annotation_path.write_text(
+        f"sheet: 見積入力\nquestions_answered: [{question_id}]\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["compile", str(proj)])
+
+    assert result.exit_code == 0, result.output
+    assert "警告（質問ID回答内容なし）" in result.output
+    assert f"- [ ] **{question_id}**" in (proj / "questions.md").read_text(encoding="utf-8")
+
+
+def test_compile_accepts_sheet_role_target_as_answer_content(make_xlsx):
+    proj = _extract(make_xlsx)
+    question_id = _sheet_role_id(proj)
+    (proj / "annotations" / "見積入力.yaml").write_text(
+        f"sheet: 見積入力\ntargets:\n"
+        f"  - kind: sheet_role\n    value: 営業の入力画面\n"
+        f"questions_answered: [{question_id}]\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["compile", str(proj)])
+
+    assert result.exit_code == 0, result.output
+    assert "質問ID回答内容なし" not in result.output
+    assert f"- [x] **{question_id}**" in (proj / "questions.md").read_text(encoding="utf-8")
+
+
+def test_compile_detects_answer_for_another_sheet(make_xlsx):
+    proj = _extract(make_xlsx)
+    question_id = _sheet_role_id(proj)
+    (proj / "annotations" / "other.yaml").write_text(
+        f"sheet: 別シート\nrole: 別の役割\nquestions_answered: [{question_id}]\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["compile", str(proj)])
+
+    assert result.exit_code == 0, result.output
+    assert "警告（質問ID対象不一致）" in result.output
+    assert f"- [ ] **{question_id}**" in (proj / "questions.md").read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("raw_text", ["{", "{}"])
 def test_compile_formats_broken_raw_as_recoverable_data_error(make_xlsx, raw_text):
     proj = _extract(make_xlsx)

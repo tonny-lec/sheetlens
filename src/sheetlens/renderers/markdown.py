@@ -15,15 +15,25 @@ MAX_GRID_COLS = 15
 
 def _fmt_target(t: AnnotationTarget) -> str:
     if t.kind == "input_source":
-        parts = [f"入力元: {t.value}"] if t.value else []
-        if t.by:
-            parts.append(f"入力者: {t.by}")
-        if t.when:
-            parts.append(f"タイミング: {t.when}")
-        return " / ".join(parts) or (t.note or "")
-    if t.kind == "dropdown_semantics" and t.values:
-        return "選択肢の意味: " + "、".join(f"「{k}」={v}" for k, v in t.values.items())
-    return t.note or t.value or ""
+        value = getattr(t, "value", None)
+        parts = [f"入力元: {value}"] if value else []
+        by = getattr(t, "by", None)
+        when = getattr(t, "when", None)
+        if by:
+            parts.append(f"入力者: {by}")
+        if when:
+            parts.append(f"タイミング: {when}")
+        return " / ".join(parts) or (getattr(t, "note", None) or "")
+    if t.kind == "trigger_timing":
+        when = getattr(t, "when", None)
+        note = getattr(t, "note", None)
+        return " / ".join(
+            part for part in (f"タイミング: {when}" if when else "", note or "") if part
+        )
+    values = getattr(t, "values", None)
+    if t.kind == "dropdown_semantics" and values:
+        return "選択肢の意味: " + "、".join(f"「{k}」={v}" for k, v in values.items())
+    return getattr(t, "note", None) or getattr(t, "value", None) or ""
 
 
 def _ann_lines(ann: SheetAnnotations | None, rng: str) -> list[str]:
@@ -32,7 +42,7 @@ def _ann_lines(ann: SheetAnnotations | None, rng: str) -> list[str]:
     lines = [
         f"> 💬 業務上の意味: {_fmt_target(t)}"
         for t in ann.targets
-        if t.range and rng in split_ranges(t.range)
+        if getattr(t, "range", None) and rng in split_ranges(t.range)
     ]
     return lines + [""] if lines else []
 
@@ -192,9 +202,16 @@ def render_sheet_md(
         lines.append(f"- 属性: {' / '.join(flags)}")
     if ann:
         for t in ann.targets:
+            if t.kind == "sheet_role":
+                lines.append(f"> 💬 業務上の意味: {_fmt_target(t)}")
+                lines.append("")
             if t.kind == "hidden_reason":
-                label = f"（{t.range}）" if t.range else ""
-                lines.append(f"> 💬 業務上の意味{label}: {t.note or t.value or ''}")
+                target_range = getattr(t, "range", None)
+                label = f"（{target_range}）" if target_range else ""
+                lines.append(
+                    f"> 💬 業務上の意味{label}: "
+                    f"{getattr(t, 'note', None) or getattr(t, 'value', None) or ''}"
+                )
     lines += ["", "## レイアウトマップ", ""]
     lines += _grid(sheet)
     lines += _display_semantics_lines(sheet)
@@ -249,8 +266,10 @@ def render_readme(
     deps: dict[str, list[str]],
     questions: list[Question],
     answered: Iterable[str],
+    annotations: Iterable[SheetAnnotations] = (),
 ) -> str:
     answered = set(answered)
+    annotations = list(annotations)
     lines = [f"# {wb.source_file} — SheetLens 抽出結果", ""]
     if wb.extraction_gaps:
         lines += [f"**⚠ この抽出には {len(wb.extraction_gaps)} 件の欠落があります:**", ""]
@@ -280,6 +299,20 @@ def render_readme(
         "## シート一覧",
         "",
     ]
+    vba_annotations = [ann for ann in annotations if ann.sheet == "(VBA)"]
+    if vba_annotations:
+        sheet_list_index = lines.index("## シート一覧")
+        lines[sheet_list_index:sheet_list_index] = [
+            "## VBA 注釈",
+            "",
+            *[
+                f"- {target.range}: {_fmt_target(target)}"
+                for ann in vba_annotations
+                for target in ann.targets
+                if getattr(target, "range", None)
+            ],
+            "",
+        ]
     for s in wb.sheets:
         mark = "（非表示）" if s.hidden else ""
         lines.append(

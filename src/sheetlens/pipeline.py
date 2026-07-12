@@ -2,8 +2,9 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from sheetlens.annotations.schema import SheetAnnotations, find_orphans, load_annotations, split_ranges
 from sheetlens.detectors.formula_patterns import FormulaPattern, aggregate_formulas
@@ -41,6 +42,14 @@ class ProjectQuestionState(BaseModel):
     catalog: QuestionIdCatalog
     resolution: AnswerResolution
     bootstrapped_catalog: bool = False
+    answer_diagnostics: list["AnnotationAnswerDiagnostic"] = Field(default_factory=list)
+
+
+class AnnotationAnswerDiagnostic(BaseModel):
+    kind: Literal["target_mismatch", "empty_answer"]
+    question_id: str
+    annotation_sheet: str
+    question_sheet: str
 
 
 class CompileResult(BaseModel):
@@ -138,11 +147,95 @@ def resolve_project_question_ids(
     )
     if persist:
         save_catalog(catalog_path, catalog)
+    answer_diagnostics = _validate_annotation_answers(catalog, anns, resolution)
     return ProjectQuestionState(
         catalog=catalog,
         resolution=resolution,
         bootstrapped_catalog=bootstrapped_catalog,
+        answer_diagnostics=answer_diagnostics,
     )
+
+
+def _resolved_question_id(question_id: str, catalog: QuestionIdCatalog) -> str:
+    if is_legacy_question_id(question_id):
+        return catalog.legacy_aliases.get(question_id, question_id)
+    return question_id
+
+
+def _normalized_target(value: str) -> tuple[str, ...]:
+    return tuple(sorted(part.upper() for part in split_ranges(value)))
+
+
+def _has_annotation_answer(
+    ann: SheetAnnotations,
+    question: object,
+) -> bool:
+    category = question.category
+    if category == "sheet_role":
+        return bool(ann.role and ann.role.strip()) or any(
+            target.kind == "sheet_role"
+            and bool(getattr(target, "note", None) or getattr(target, "value", None))
+            for target in ann.targets
+        )
+    if category == "free_note":
+        return False
+    for target in ann.targets:
+        target_range = getattr(target, "range", None)
+        if target.kind != category or not target_range:
+            continue
+        if category == "trigger_timing":
+            matches = target_range == question.target
+        else:
+            matches = _normalized_target(target_range) == _normalized_target(question.target)
+        if not matches:
+            continue
+        if category == "input_source":
+            return bool(getattr(target, "value", None))
+        if category == "dropdown_semantics":
+            values = getattr(target, "values", {})
+            return bool(values) and all(key.strip() and value.strip() for key, value in values.items())
+        if category == "trigger_timing":
+            return bool(getattr(target, "when", None))
+        return bool(getattr(target, "note", None) or getattr(target, "value", None))
+    return False
+
+
+def _validate_annotation_answers(
+    catalog: QuestionIdCatalog,
+    anns: list[SheetAnnotations],
+    resolution: AnswerResolution,
+) -> list[AnnotationAnswerDiagnostic]:
+    diagnostics: list[AnnotationAnswerDiagnostic] = []
+    answered_ids = set(resolution.answered_ids)
+    for ann in anns:
+        for source_id in ann.questions_answered:
+            target_id = _resolved_question_id(source_id, catalog)
+            question = catalog.questions.get(target_id)
+            if question is None or target_id not in answered_ids:
+                continue
+            if ann.sheet != question.sheet:
+                answered_ids.discard(target_id)
+                diagnostics.append(
+                    AnnotationAnswerDiagnostic(
+                        kind="target_mismatch",
+                        question_id=source_id,
+                        annotation_sheet=ann.sheet,
+                        question_sheet=question.sheet,
+                    )
+                )
+                continue
+            if not _has_annotation_answer(ann, question):
+                answered_ids.discard(target_id)
+                diagnostics.append(
+                    AnnotationAnswerDiagnostic(
+                        kind="empty_answer",
+                        question_id=source_id,
+                        annotation_sheet=ann.sheet,
+                        question_sheet=question.sheet,
+                    )
+                )
+    resolution.answered_ids = answered_ids
+    return diagnostics
 
 
 def _safe(name: str) -> str:
@@ -150,11 +243,26 @@ def _safe(name: str) -> str:
 
 
 def find_unwoven(wb: ir.Workbook, analysis: Analysis, anns: list[SheetAnnotations]) -> list[str]:
-    macros = {b.macro for b in wb.buttons}
+    trigger_targets = {
+        (question.sheet, question.target)
+        for question in analysis.questions
+        if question.category == "trigger_timing"
+    }
     warnings: list[str] = []
     for ann in anns:
         sheet = next((s for s in wb.sheets if s.name == ann.sheet), None)
         if sheet is None:
+            if ann.sheet == "(VBA)":
+                for target in ann.targets:
+                    target_range = getattr(target, "range", None)
+                    if (
+                        target.kind == "trigger_timing"
+                        and target_range
+                        and (ann.sheet, target_range) not in trigger_targets
+                    ):
+                        warnings.append(
+                            f"{ann.sheet}!{target_range}: 該当するマクロがありません（織り込まれません）"
+                        )
             continue
         keys: set[str] = {r.range for r in analysis.regions.get(ann.sheet, [])}
         for v in sheet.validations:
@@ -162,17 +270,18 @@ def find_unwoven(wb: ir.Workbook, analysis: Analysis, anns: list[SheetAnnotation
         for cf in sheet.conditional_formats:
             keys.update(split_ranges(cf.range))
         for t in ann.targets:
-            if not t.range or t.kind == "hidden_reason":
+            target_range = getattr(t, "range", None)
+            if not target_range or t.kind == "hidden_reason":
                 continue
             if t.kind == "trigger_timing":
-                if t.range not in macros:
+                if (ann.sheet, target_range) not in trigger_targets:
                     warnings.append(
-                        f"{ann.sheet}!{t.range}: 該当するマクロがありません（織り込まれません）"
+                        f"{ann.sheet}!{target_range}: 該当するマクロがありません（織り込まれません）"
                     )
                 continue
-            if not any(part in keys for part in split_ranges(t.range)):
+            if not any(part in keys for part in split_ranges(target_range)):
                 warnings.append(
-                    f"{ann.sheet}!{t.range}: どの構造要素にも一致しませんでした（織り込まれません）"
+                    f"{ann.sheet}!{target_range}: どの構造要素にも一致しませんでした（織り込まれません）"
                 )
     return warnings
 
@@ -198,7 +307,14 @@ def _write_views(
         )
         (structure / f"sheet-{_safe(sheet.name)}.md").write_text(md, encoding="utf-8")
     (proj / "README.md").write_text(
-        render_readme(wb, sheet_dependencies(wb), analysis.questions, answered), encoding="utf-8"
+        render_readme(
+            wb,
+            sheet_dependencies(wb),
+            analysis.questions,
+            answered,
+            anns,
+        ),
+        encoding="utf-8",
     )
     (proj / "questions.md").write_text(
         render_questions_md(analysis.questions, answered), encoding="utf-8"

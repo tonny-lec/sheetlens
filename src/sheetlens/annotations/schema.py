@@ -1,10 +1,10 @@
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, TypeAlias
 
 import yaml
 from openpyxl.utils import range_boundaries
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 
 from sheetlens.model import ir
 
@@ -13,29 +13,99 @@ class AnnotationError(Exception):
     pass
 
 
-class AnnotationTarget(BaseModel):
+NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class _AnnotationTargetBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    range: str | None = None
-    kind: Literal[
-        "input_source", "dropdown_semantics", "trigger_timing",
-        "alert_action", "sheet_role", "free_note", "hidden_reason",
-    ]
-    value: str | None = None
-    by: str | None = None
-    when: str | None = None
-    values: dict[str, str] = Field(default_factory=dict)
-    note: str | None = None
+
+class InputSourceTarget(_AnnotationTargetBase):
+    kind: Literal["input_source"]
+    range: NonEmptyString
+    value: NonEmptyString
+    by: NonEmptyString | None = None
+    when: NonEmptyString | None = None
+    note: NonEmptyString | None = None
+
+
+class DropdownSemanticsTarget(_AnnotationTargetBase):
+    kind: Literal["dropdown_semantics"]
+    range: NonEmptyString
+    values: dict[NonEmptyString, NonEmptyString]
+    note: NonEmptyString | None = None
+
+    @model_validator(mode="after")
+    def require_values(self) -> "DropdownSemanticsTarget":
+        if not self.values:
+            raise ValueError("dropdown_semantics target requires at least one value")
+        return self
+
+
+class TriggerTimingTarget(_AnnotationTargetBase):
+    kind: Literal["trigger_timing"]
+    range: NonEmptyString
+    when: NonEmptyString
+    note: NonEmptyString | None = None
+
+
+class AlertActionTarget(_AnnotationTargetBase):
+    kind: Literal["alert_action"]
+    range: NonEmptyString
+    note: NonEmptyString
+
+
+class SheetRoleTarget(_AnnotationTargetBase):
+    kind: Literal["sheet_role"]
+    value: NonEmptyString | None = None
+    note: NonEmptyString | None = None
+
+    @model_validator(mode="after")
+    def require_content(self) -> "SheetRoleTarget":
+        if self.value is None and self.note is None:
+            raise ValueError("sheet_role target requires value or note")
+        return self
+
+
+class FreeNoteTarget(_AnnotationTargetBase):
+    kind: Literal["free_note"]
+    range: NonEmptyString | None = None
+    note: NonEmptyString
+
+
+class HiddenReasonTarget(_AnnotationTargetBase):
+    kind: Literal["hidden_reason"]
+    range: NonEmptyString | None = None
+    value: NonEmptyString | None = None
+    note: NonEmptyString | None = None
+
+    @model_validator(mode="after")
+    def require_content(self) -> "HiddenReasonTarget":
+        if self.value is None and self.note is None:
+            raise ValueError("hidden_reason target requires value or note")
+        return self
+
+
+AnnotationTarget: TypeAlias = Annotated[
+    InputSourceTarget
+    | DropdownSemanticsTarget
+    | TriggerTimingTarget
+    | AlertActionTarget
+    | SheetRoleTarget
+    | FreeNoteTarget
+    | HiddenReasonTarget,
+    Field(discriminator="kind"),
+]
 
 
 class SheetAnnotations(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sheet: str
-    role: str | None = None
-    workflow_stage: str | None = None
+    sheet: NonEmptyString
+    role: NonEmptyString | None = None
+    workflow_stage: NonEmptyString | None = None
     targets: list[AnnotationTarget] = Field(default_factory=list)
-    questions_answered: list[str] = Field(default_factory=list)
+    questions_answered: list[NonEmptyString] = Field(default_factory=list)
 
 
 def split_ranges(value: str) -> list[str]:
@@ -45,10 +115,21 @@ def split_ranges(value: str) -> list[str]:
 
 def load_annotations(dir_path: Path) -> list[SheetAnnotations]:
     out: list[SheetAnnotations] = []
+    by_sheet: dict[str, Path] = {}
     for path in sorted(dir_path.glob("*.yaml")):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
-            out.append(SheetAnnotations.model_validate(data))
+            annotation = SheetAnnotations.model_validate(data)
+            previous = by_sheet.get(annotation.sheet)
+            if previous is not None:
+                raise AnnotationError(
+                    f"{path.name}: sheet {annotation.sheet!r} は {previous.name} で既に定義されています。"
+                    "同一シートの注釈は1ファイルにまとめてください。"
+                )
+            by_sheet[annotation.sheet] = path
+            out.append(annotation)
+        except AnnotationError:
+            raise
         except (yaml.YAMLError, ValidationError) as e:
             raise AnnotationError(f"{path.name}: {e}") from e
     return out
@@ -60,10 +141,13 @@ def find_orphans(wb: ir.Workbook, anns: list[SheetAnnotations]) -> list[str]:
     for ann in anns:
         sheet = sheets.get(ann.sheet)
         if sheet is None:
+            if ann.sheet == "(VBA)" and all(t.kind == "trigger_timing" for t in ann.targets):
+                continue
             orphans.append(f"{ann.sheet}: 注釈対象のシートが存在しません")
             continue
         for t in ann.targets:
-            if not t.range:
+            target_range = getattr(t, "range", None)
+            if not target_range:
                 continue
             if t.kind in ("trigger_timing", "hidden_reason"):
                 continue
@@ -71,10 +155,10 @@ def find_orphans(wb: ir.Workbook, anns: list[SheetAnnotations]) -> list[str]:
                 sheet.structural_range or sheet.used_range or sheet.content_range
             )
             if not available_range:
-                orphans.append(f"{ann.sheet}!{t.range}: シートが空です")
+                orphans.append(f"{ann.sheet}!{target_range}: シートが空です")
                 continue
             u_min_c, u_min_r, u_max_c, u_max_r = range_boundaries(available_range)
-            for part in split_ranges(t.range):
+            for part in split_ranges(target_range):
                 try:
                     min_c, min_r, max_c, max_r = range_boundaries(part)
                 except ValueError:

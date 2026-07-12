@@ -53,6 +53,20 @@ def _print_question_resolution(
         )
 
 
+def _print_annotation_answer_diagnostics(diagnostics: list[object]) -> None:
+    for diagnostic in diagnostics:
+        if diagnostic.kind == "target_mismatch":
+            typer.echo(
+                f"警告（質問ID対象不一致）: {diagnostic.question_id}: "
+                f"注釈シート {diagnostic.annotation_sheet} / 質問シート {diagnostic.question_sheet}"
+            )
+        else:
+            typer.echo(
+                f"警告（質問ID回答内容なし）: {diagnostic.question_id}: "
+                f"注釈シート {diagnostic.annotation_sheet}"
+            )
+
+
 @app.command()
 def extract(
     file: Path = typer.Argument(..., exists=True, dir_okay=False, readable=True),
@@ -127,6 +141,7 @@ def compile_cmd(project: Path) -> None:
         result.question_state.resolution,
         result.question_state.catalog.legacy_source_sha256,
     )
+    _print_annotation_answer_diagnostics(result.question_state.answer_diagnostics)
     typer.echo(f"再生成しました: {project}")
 
 
@@ -179,6 +194,7 @@ def check(project: Path) -> None:
         question_state.resolution,
         question_state.catalog.legacy_source_sha256,
     )
+    _print_annotation_answer_diagnostics(question_state.answer_diagnostics)
     questions = analysis.questions
     answered = question_state.resolution.answered_ids
     unanswered = sum(1 for q in questions if q.id not in answered)

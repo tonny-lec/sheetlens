@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from sheetlens.annotations.schema import AnnotationTarget, SheetAnnotations
+from sheetlens.annotations.schema import (
+    AlertActionTarget,
+    DropdownSemanticsTarget,
+    InputSourceTarget,
+    SheetAnnotations,
+    SheetRoleTarget,
+    TriggerTimingTarget,
+)
 from sheetlens.detectors.formula_patterns import FormulaPattern
 from sheetlens.detectors.questions import Question
 from sheetlens.detectors.regions import Region
@@ -49,7 +56,7 @@ def test_sheet_md_mentions_structure():
 def test_annotations_and_unanswered_woven_in():
     ann = SheetAnnotations(
         sheet="見積入力", role="営業のメイン入力画面",
-        targets=[AnnotationTarget(range="A3:B8", kind="input_source", value="manual", by="営業担当")],
+        targets=[InputSourceTarget(range="A3:B8", kind="input_source", value="manual", by="営業担当")],
     )
     qs = [Question(id="q-001", sheet="見積入力", target="A3:B8", category="input_source", text="誰が入力？")]
     md = render_sheet_md(_sheet(), [], [Region(range="A3:B8", kind="block")], qs, [], ann, frozenset())
@@ -57,6 +64,35 @@ def test_annotations_and_unanswered_woven_in():
     assert "❓ 未確認" in md and "q-001" in md
     md_answered = render_sheet_md(_sheet(), [], [Region(range="A3:B8", kind="block")], qs, [], ann, {"q-001"})
     assert "q-001" not in md_answered
+
+
+def test_sheet_role_and_vba_annotation_content_is_rendered():
+    ann = SheetAnnotations(
+        sheet="(VBA)",
+        targets=[
+            TriggerTimingTarget(
+                kind="trigger_timing",
+                range="ThisWorkbook.cls.Workbook_Open",
+                when="起動時",
+            )
+        ],
+    )
+    sheet_role = SheetAnnotations(
+        sheet="見積入力",
+        targets=[SheetRoleTarget(kind="sheet_role", value="営業入力")],
+    )
+    wb = ir.Workbook(
+        source_file="a.xlsm",
+        sha256="00" * 32,
+        sheets=[_sheet()],
+    )
+
+    readme = render_readme(wb, {}, [], frozenset(), [ann])
+    sheet_md = render_sheet_md(_sheet(), [], [], [], [], sheet_role)
+
+    assert "## VBA 注釈" in readme
+    assert "タイミング: 起動時" in readme
+    assert "営業入力" in sheet_md
 
 
 def test_grid_escapes_newlines_and_pipes():
@@ -146,7 +182,7 @@ def test_display_semantics_are_listed_without_reformatting_grid_values():
 def test_validation_with_multiple_ranges_and_empty_ranges_safe():
     ann = SheetAnnotations(
         sheet="s",
-        targets=[AnnotationTarget(range="D2", kind="dropdown_semantics", values={"はい": "承認する"})],
+        targets=[DropdownSemanticsTarget(range="D2", kind="dropdown_semantics", values={"はい": "承認する"})],
     )
     sheet = ir.Sheet(
         name="s",
@@ -164,7 +200,7 @@ def test_validation_with_multiple_ranges_and_empty_ranges_safe():
 def test_multirange_conditional_format_annotation_woven():
     ann = SheetAnnotations(
         sheet="s",
-        targets=[AnnotationTarget(range="G1:G9", kind="alert_action", note="担当へ連絡")],
+        targets=[AlertActionTarget(range="G1:G9", kind="alert_action", note="担当へ連絡")],
     )
     sheet = ir.Sheet(
         name="s",
@@ -274,7 +310,7 @@ def test_conditional_format_visual_payloads_have_deterministic_summaries():
 def test_multirange_conditional_format_annotation_still_follows_formula_summary():
     ann = SheetAnnotations(
         sheet="s",
-        targets=[AnnotationTarget(range="G1:G9", kind="alert_action", note="担当へ連絡")],
+        targets=[AlertActionTarget(range="G1:G9", kind="alert_action", note="担当へ連絡")],
     )
     sheet = ir.Sheet(
         name="s",

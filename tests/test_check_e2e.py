@@ -62,7 +62,7 @@ def _question_id(project, rule):
 
 def _write_answer(project, question_id):
     (project / "annotations" / "入力.yaml").write_text(
-        f"sheet: 入力\nquestions_answered: [{question_id}]\n",
+        f"sheet: 入力\nrole: 入力画面\nquestions_answered: [{question_id}]\n",
         encoding="utf-8",
     )
 
@@ -120,6 +120,36 @@ def test_check_bootstraps_legacy_aliases_in_memory_without_creating_catalog(make
     assert "legacy_source_sha256:" in result.output
     assert "回答時世代そのものを証明しません" in result.output
     assert not (project / "question-ids.json").exists()
+
+
+def test_check_does_not_count_contentless_answer(make_xlsx):
+    project = _extract(make_xlsx)
+    question_id = _question_id(project, "sheet_role")
+    (project / "annotations" / "入力.yaml").write_text(
+        f"sheet: 入力\nquestions_answered: [{question_id}]\n",
+        encoding="utf-8",
+    )
+
+    result = _check_read_only(project)
+
+    total = len(_catalog(project).current_ids)
+    assert result.exit_code == 0, result.output
+    assert "警告（質問ID回答内容なし）" in result.output
+    assert f"未回答質問: {total} / {total}" in result.output
+
+
+def test_check_detects_answer_for_another_sheet_without_writing(make_xlsx):
+    project = _extract(make_xlsx)
+    question_id = _question_id(project, "sheet_role")
+    (project / "annotations" / "other.yaml").write_text(
+        f"sheet: 別シート\nrole: 別の役割\nquestions_answered: [{question_id}]\n",
+        encoding="utf-8",
+    )
+
+    result = _check_read_only(project)
+
+    assert result.exit_code == 0, result.output
+    assert "警告（質問ID対象不一致）" in result.output
 
 
 def test_check_reports_changed_answer_and_current_id_without_writes(make_xlsx):
