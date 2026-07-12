@@ -27,15 +27,19 @@ def aggregate_formulas(sheet: ir.Sheet) -> list[FormulaPattern]:
         items.sort(key=lambda t: t[0])
         groups: dict[str, list[tuple[int, ir.Cell]]] = defaultdict(list)
         for row, cell in items:
-            groups[normalize_formula(cell.formula, origin=cell.ref)].append((row, cell))
+            formula = cell.formula
+            assert formula is not None
+            groups[normalize_formula(formula, origin=cell.ref)].append((row, cell))
         majority = max(groups, key=lambda k: len(groups[k]))
         main_rows = [r for r, _ in groups[majority]]
+        main_example = groups[majority][0][1].formula
+        assert main_example is not None
         main = FormulaPattern(
             ranges=[
                 f"{col}{a}:{col}{b}" if a != b else f"{col}{a}" for a, b in runs(main_rows)
             ],
             pattern=majority,
-            example=groups[majority][0][1].formula,
+            example=main_example,
         )
         for norm, group in groups.items():
             if norm == majority:
@@ -45,6 +49,8 @@ def aggregate_formulas(sheet: ir.Sheet) -> list[FormulaPattern]:
             main.exceptions.extend(f"{c.ref}: {c.formula}" for _, c in inside)
             if outside:
                 out_rows = [r for r, _ in outside]
+                outside_example = outside[0][1].formula
+                assert outside_example is not None
                 patterns.append(
                     FormulaPattern(
                         ranges=[
@@ -52,7 +58,7 @@ def aggregate_formulas(sheet: ir.Sheet) -> list[FormulaPattern]:
                             for a, b in runs(out_rows)
                         ],
                         pattern=norm,
-                        example=outside[0][1].formula,
+                        example=outside_example,
                     )
                 )
         patterns.append(main)

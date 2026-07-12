@@ -15,7 +15,7 @@ dependencies = [
 sheetlens = "sheetlens.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.4"]
+dev = ["mypy>=1.13", "pytest>=8.0", "pytest-cov>=6.0", "ruff>=0.4"]
 
 [build-system]
 requires = ["hatchling"]
@@ -34,3 +34,17 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = ["oletools.*", "openpyxl.*", "yaml.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["src/sheetlens"]
+
+[tool.coverage.report]
+skip_empty = true

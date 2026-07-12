@@ -255,7 +255,8 @@ class Sheet(BaseModel):
             value = _structural_union(self.content_range, value)
         super().__setattr__(name, value)
 
-    @computed_field
+    # Pydantic's computed_field preserves the legacy property setter semantics.
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def used_range(self) -> str | None:
         return self.content_range

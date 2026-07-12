@@ -1,0 +1,33 @@
+{
+  "source_file": "openpyxl-vba-test.xlsm",
+  "sha256": "39ab44eb0d0725cf66baee054da963ae8292ecb41212062942fac14ce3cc59c1",
+  "sheets": [
+    {
+      "name": "Scratch",
+      "hidden": false,
+      "used_range": null,
+      "content_range": null,
+      "structural_range": null,
+      "artifacts": []
+    }
+  ],
+  "dependencies": {
+    "Scratch": []
+  },
+  "dependency_edges": [],
+  "external_refs": [],
+  "extraction_gaps": [
+    "Scratch: drawing xl/drawings/drawing1.xml の AlternateContent は未対応です",
+    "Scratch: VML drawing は未対応です",
+    "Scratch: ActiveX control 2件の詳細抽出は未対応です"
+  ],
+  "vba_modules": [
+    "Sheet1.cls",
+    "ThisWorkbook.cls",
+    "Calculations.bas",
+    "AutoComp.frm",
+    "EditNoncomps.frm",
+    "Sorting.bas",
+    "Formatting.bas"
+  ]
+}

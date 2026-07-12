@@ -4,12 +4,14 @@ import posixpath
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree as ET
 
 from sheetlens.model import ir
 
-_TYPE_ORDER = ("chart", "image", "shape", "pivot")
+ArtifactType = Literal["chart", "image", "shape", "pivot"]
+_TYPE_ORDER: tuple[ArtifactType, ...] = ("chart", "image", "shape", "pivot")
 _SSML_NAMESPACES = frozenset(
     {
         "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -208,9 +210,11 @@ def _drawing_artifacts(
     sheet_name: str,
     drawing_part: str,
     gaps: list[str],
-) -> tuple[dict[str, int], dict[str, set[str]]]:
-    counts = {artifact_type: 0 for artifact_type in _TYPE_ORDER}
-    parts = {artifact_type: set() for artifact_type in _TYPE_ORDER}
+) -> tuple[dict[ArtifactType, int], dict[ArtifactType, set[str]]]:
+    counts: dict[ArtifactType, int] = {artifact_type: 0 for artifact_type in _TYPE_ORDER}
+    parts: dict[ArtifactType, set[str]] = {
+        artifact_type: set() for artifact_type in _TYPE_ORDER
+    }
     root = _read_xml(package, drawing_part, gaps, sheet_name)
     if root is None:
         return counts, parts
@@ -309,8 +313,10 @@ def _sheet_artifacts(
     sheet_part: str,
     gaps: list[str],
 ) -> list[ir.SheetArtifact]:
-    counts = {artifact_type: 0 for artifact_type in _TYPE_ORDER}
-    parts = {artifact_type: set() for artifact_type in _TYPE_ORDER}
+    counts: dict[ArtifactType, int] = {artifact_type: 0 for artifact_type in _TYPE_ORDER}
+    parts: dict[ArtifactType, set[str]] = {
+        artifact_type: set() for artifact_type in _TYPE_ORDER
+    }
     root = _read_xml(package, sheet_part, gaps, sheet_name)
     if root is None:
         return []

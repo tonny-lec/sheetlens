@@ -126,17 +126,17 @@ def _validate_catalog(catalog: QuestionIdCatalog) -> None:
 
     current_by_identity: dict[str, str] = {}
     for question_id in catalog.current_ids:
-        entry = catalog.questions.get(question_id)
-        if entry is None:
+        current_entry = catalog.questions.get(question_id)
+        if current_entry is None:
             raise QuestionCatalogError(
                 f"catalog current ID is missing from questions: {question_id}"
             )
-        prior_id = current_by_identity.get(entry.identity_sha256)
+        prior_id = current_by_identity.get(current_entry.identity_sha256)
         if prior_id is not None and prior_id != question_id:
             raise QuestionCatalogError(
                 f"multiple current questions share identity_sha256: {prior_id}, {question_id}"
             )
-        current_by_identity[entry.identity_sha256] = question_id
+        current_by_identity[current_entry.identity_sha256] = question_id
 
     for legacy_id, target in catalog.legacy_aliases.items():
         if not is_legacy_question_id(legacy_id):

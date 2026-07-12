@@ -2,6 +2,7 @@ import hashlib
 import re
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from typing import Literal
 
 import openpyxl
 from openpyxl.cell.cell import Cell as OpenpyxlCell
@@ -14,6 +15,8 @@ from sheetlens.reader.artifacts import extract_sheet_artifacts
 from sheetlens.reader.buttons import extract_buttons
 from sheetlens.reader.features import read_conditional_formats, read_validations
 from sheetlens.reader.vba import extract_vba
+
+DateTimeSemantic = Literal["date", "time", "datetime", "duration"]
 
 
 def _coerce(value: object) -> ir.Primitive:
@@ -29,12 +32,12 @@ def _formula_text(raw: object) -> str | None:
     return text if isinstance(text, str) else None
 
 
-def _datetime_format_semantics(number_format: str) -> ir.CellDisplaySemantics | None:
+def _datetime_format_semantics(number_format: str) -> DateTimeSemantic | None:
     normalized_format = number_format.lower()
     if numbers.is_timedelta_format(normalized_format):
         return "duration"
     semantic = numbers.is_datetime(normalized_format)
-    if semantic in ("date", "time", "datetime"):
+    if semantic in ("date", "time", "datetime", "duration"):
         return semantic
     return None
 
@@ -278,7 +281,6 @@ def read_workbook(path: Path) -> ir.Workbook:
         sheets.append(
             ir.Sheet(
                 name=ws_f.title,
-                used_range=content_range,
                 content_range=content_range,
                 structural_range=structural_range,
                 hidden=ws_f.sheet_state != "visible",
