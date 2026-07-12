@@ -35,6 +35,7 @@ proposed -> ready -> in_progress -> done
 
 proposed / ready / blocked -> cancelled
 done -> ready
+done -> in_progress (統合後検証失敗の recovery のみ)
 ```
 
 - `proposed`: 根本原因、変更範囲、受け入れ条件のいずれかが未確定
@@ -54,6 +55,22 @@ done -> ready
 統合後検証が失敗した場合は、reset・rebase・force を行わず、`main` 上で `in_progress` または
 `blocked` へ戻す state-only recovery commit を作成します。branch の削除だけが失敗した場合は、
 main の完了状態を取り消さず、残存 branch と後処理条件を報告します。
+
+### status と owner の遷移契約
+
+| 遷移 | owner | 実行主体と条件 | 失敗・中断時 |
+|---|---|---|---|
+| `proposed -> ready` | `null` | 親ワーカーが根拠、範囲、依存を確認 | `proposed` を維持 |
+| `ready -> in_progress` | 新しい非空文字列 | 親ワーカーが clean `main` 上で課題を選び、status と owner を同時更新 | 片方だけ書かず、元状態を維持 |
+| `in_progress -> blocked` | `null` | 親ワーカーが継続不能の理由・解除条件・次の確認を同時記録 | blocker を埋めて check |
+| `blocked -> in_progress` | 再開主体の非空文字列 | owner、scope、branch、worktree を確認して status と owner を同時更新 | 根拠がなければ停止 |
+| `in_progress -> done` | `null` | 親ワーカーが finish skill の commit、main 統合、統合後検証を完了 | `in_progress` または `blocked` へ復旧 |
+| `done -> ready` | `null` | 親ワーカーが再オープン理由を記録 | `done` を維持 |
+| `done -> in_progress` | `Codex` | 統合後検証失敗の recovery commit に限る | 履歴を書き換えない |
+| `proposed / ready / blocked -> cancelled` | `null` | 親ワーカーが中止理由を記録 | 中止理由を埋めて check |
+
+この表の status と owner は1回の item 更新として扱い、`render -> check` を直列に実行します。
+owner は `null` または空白でない文字列だけを許可し、空文字・空白だけの値は入力エラーです。
 
 ## 並行作業
 

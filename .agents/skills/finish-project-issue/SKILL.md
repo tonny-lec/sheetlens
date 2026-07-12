@@ -16,6 +16,11 @@ active issue. The `done` value recorded in the task-branch commit is provisional
 complete. Only the parent/root finish workflow may make that transition; implementation work must
 not independently mark an issue `done`.
 
+The lifecycle invariant is `in_progress + non-empty owner`; `blocked`, `ready`, `done`, and
+`cancelled` release owner to `null`. A post-merge verification recovery is the only `done ->
+in_progress` exception and must set `owner: Codex` in the same recovery update. Any `blocked ->
+in_progress` resume must establish the new owner at the same time as status.
+
 ## User Overrides
 
 Do not commit or merge when the user requests verification only, no commit, no merge, or

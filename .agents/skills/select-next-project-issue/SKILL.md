@@ -14,6 +14,8 @@ Return one issue to continue or start. Read project state without changing it.
 1. Run `uv run python scripts/check_project_state.py check` from the repository root. Stop on a nonzero exit and report the validation output.
 2. Read the validated `docs/project/backlog.md` and count rows whose status is `in_progress`.
 3. If exactly one issue is active, read its linked file under `docs/project/items/` and return it with `判定: 継続`. Do not run a new selection.
+   Require its owner to be non-empty; if the owner, branch, or worktree is not clearly related to
+   the active issue, stop and report the evidence needed for an explicit handoff.
 4. If multiple issues are active, return no issue. Report every active ID and state that solo sequential work requires resolving the active set first.
 5. If none are active, run `uv run python scripts/check_project_state.py next`. Accept candidates only after exit 0 and only from lines matching `^P[0-3] SL-[0-9]{3} `.
 6. Select the first candidate line. If none exist, report `着手可能な課題なし`.
@@ -51,4 +53,6 @@ Given `SL-020` in progress and a higher-priority `SL-010` ready, return `SL-020`
 
 - Do not treat validation output as candidate output; check the exit status first.
 - Do not select a ready issue while one issue is in progress.
+- Do not change status or owner in this read-only selection skill. The parent workflow must update
+  them atomically and run `render -> check`.
 - Do not update project-management files; this skill only selects and reports.

@@ -176,8 +176,11 @@ def parse_item(path: Path) -> tuple[ProjectItem | None, list[ProjectIssue]]:
             for value in touches
             if not _touch_path_is_canonical(value)
         )
-    if raw.get("owner") is not None and not isinstance(raw.get("owner"), str):
+    owner = raw.get("owner")
+    if owner is not None and not isinstance(owner, str):
         issues.append(_issue(path, "owner は文字列または null で指定してください"))
+    elif isinstance(owner, str) and not owner.strip():
+        issues.append(_issue(path, "owner は null または空白でない文字列で指定してください"))
     if isinstance(raw.get("status"), str) and raw["status"] not in VALID_STATUS:
         issues.append(_issue(path, f"不正な status です: {raw['status']}"))
     if isinstance(raw.get("priority"), str) and raw["priority"] not in VALID_PRIORITY:
@@ -579,9 +582,13 @@ def validate_items(items: list[ProjectItem]) -> list[ProjectIssue]:
                     f"{item.status} では受け入れ条件をチェックボックスで記載してください",
                 )
             )
-        if item.status == "in_progress" and not item.owner:
+        if item.owner is not None and not item.owner.strip():
+            issues.append(
+                _issue(item.path, "owner は null または空白でない文字列で指定してください")
+            )
+        elif item.status == "in_progress" and not item.owner:
             issues.append(_issue(item.path, "status=in_progress では owner が必須です"))
-        if item.status != "in_progress" and item.owner is not None:
+        elif item.status != "in_progress" and item.owner is not None:
             issues.append(_issue(item.path, "owner は in_progress のときだけ設定できます"))
         if item.status == "blocked":
             blocker = _validation_section_text(item, "ブロッカー")

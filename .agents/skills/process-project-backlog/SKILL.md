@@ -23,6 +23,11 @@ condition occurs.
    - Continue the single `in_progress` issue; never select another issue beside it.
    - For a new issue, require clean `main`, set only that issue to `in_progress`, set
      `owner: Codex`, render the backlog, and rerun the state check.
+   - The parent owns every status/owner transition and updates the pair in one item write before
+     running `render -> check`. Use `owner: null` for `blocked`, `done`, `ready`, `proposed`, and
+     `cancelled`; assign a non-empty owner whenever entering `in_progress`.
+   - For `blocked -> in_progress`, verify the resuming owner, branch, worktree, and scope before
+     setting both fields. Never reopen by changing status alone.
 4. Read the issue and relevant repository evidence. Finish information collection and design
    before editing implementation files.
    - Confirm the root cause, acceptance criteria, scope, dependencies, and current behavior.
@@ -57,6 +62,8 @@ invocation.
 
 - Resume an existing `in_progress` issue only when its owner, branch, and worktree changes are
   clearly related to that issue.
+- If ownership must change during resume, record an explicit handoff basis before the atomic
+  status/owner update; do not silently overwrite an unrelated owner.
 - Preserve related partial work and continue from the first unmet acceptance criterion.
 - Stop when ownership or change scope is ambiguous. Report the evidence needed to resume.
 - Keep no skill-specific state, queue, log, or checkpoint file.

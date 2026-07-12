@@ -1,5 +1,6 @@
 import errno
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,26 @@ src/example.py:10
 """
 
 
+def blocked_body() -> str:
+    return ready_body() + """
+## ブロッカー
+- 理由: 外部サービス停止
+- 解除条件: サービス復旧
+- 次に確認すること: 稼働確認
+"""
+
+
+def done_body() -> str:
+    return ready_body().replace("- [ ]", "- [x]") + "実装と検証を完了した。\n"
+
+
+def cancelled_body() -> str:
+    return ready_body() + """
+## 中止理由
+代替案を採用した。
+"""
+
+
 def assert_fd_closed(fd: int) -> None:
     try:
         os.fstat(fd)
@@ -114,6 +135,18 @@ def test_parse_item_returns_typed_item(tmp_path: Path) -> None:
     assert item.id == "SL-001"
     assert item.depends_on == ()
     assert item.owner is None
+
+
+def test_parse_item_rejects_blank_owner_with_one_diagnostic(tmp_path: Path) -> None:
+    path = tmp_path / "SL-001-blank-owner.md"
+    write_item(path, valid_front().replace("owner: null", "owner: '   '"), "# SL-001\n")
+
+    item, issues = parse_item(path)
+
+    assert item is None
+    assert [issue.message for issue in issues] == [
+        "owner は null または空白でない文字列で指定してください"
+    ]
 
 
 def test_parse_item_reports_unknown_key_and_bad_filename(tmp_path: Path) -> None:
@@ -1028,6 +1061,118 @@ def test_validate_items_enforces_owner_status(tmp_path: Path) -> None:
         "status=in_progress では owner が必須です",
         "owner は in_progress のときだけ設定できます",
     ]
+
+
+def test_validate_items_accepts_owner_status_lifecycle_matrix(tmp_path: Path) -> None:
+    items = [
+        project_item(tmp_path, "SL-001", status="proposed", touches=("src/a.py",), body=ready_body()),
+        project_item(tmp_path, "SL-002", status="ready", touches=("src/b.py",), body=ready_body()),
+        project_item(
+            tmp_path,
+            "SL-003",
+            status="in_progress",
+            owner="Codex",
+            touches=("src/c.py",),
+            body=ready_body(),
+        ),
+        project_item(
+            tmp_path,
+            "SL-004",
+            status="blocked",
+            touches=("src/d.py",),
+            body=blocked_body(),
+        ),
+        project_item(
+            tmp_path,
+            "SL-005",
+            status="done",
+            touches=("src/e.py",),
+            body=done_body(),
+        ),
+        project_item(
+            tmp_path,
+            "SL-006",
+            status="cancelled",
+            body=cancelled_body(),
+        ),
+    ]
+
+    assert validate_items(items) == []
+
+
+def test_validate_items_requires_atomic_owner_on_blocked_resume(tmp_path: Path) -> None:
+    blocked = project_item(
+        tmp_path,
+        "SL-001",
+        status="blocked",
+        touches=("src/a.py",),
+        body=blocked_body(),
+    )
+    resumed = replace(blocked, status="in_progress", owner="Codex", body=ready_body())
+    blocked_again = replace(blocked, status="blocked", owner=None, body=blocked_body())
+    done = replace(blocked, status="done", owner=None, body=done_body())
+    reopened = replace(
+        done,
+        status="ready",
+        owner=None,
+        body=ready_body() + "\n## 再オープン理由\n追加の再現条件を確認した。\n",
+    )
+    recovered = replace(done, status="in_progress", owner="Codex", body=ready_body())
+    cancelled = replace(blocked, status="cancelled", owner=None, body=cancelled_body())
+    status_only = replace(blocked, status="in_progress", owner=None, body=ready_body())
+    blocked_with_owner = replace(blocked, owner="Codex")
+
+    assert validate_items([blocked]) == []
+    assert validate_items([resumed]) == []
+    assert validate_items([blocked_again]) == []
+    assert validate_items([done]) == []
+    assert validate_items([reopened]) == []
+    assert validate_items([recovered]) == []
+    assert validate_items([cancelled]) == []
+    assert [issue.message for issue in validate_items([status_only])] == [
+        "status=in_progress では owner が必須です"
+    ]
+    assert [issue.message for issue in validate_items([blocked_with_owner])] == [
+        "owner は in_progress のときだけ設定できます"
+    ]
+
+
+def test_owner_repair_updates_once_then_renders_and_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "docs" / "project"
+    items_dir = project / "items"
+    project.mkdir(parents=True)
+    (project / "roadmap.md").write_text("## M1 Test\n", encoding="utf-8")
+    invalid = valid_front().replace("status: proposed", "status: in_progress")
+    invalid = invalid.replace("touches: []", "touches: [src/a.py]")
+    write_item(items_dir / "SL-001-owner.md", invalid, ready_body())
+
+    assert run("check", tmp_path) == 1
+
+    item_path = items_dir / "SL-001-owner.md"
+    writes: list[Path] = []
+    original_write_text = Path.write_text
+
+    def record_write(path: Path, *args, **kwargs):
+        if path == item_path:
+            writes.append(path)
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", record_write)
+    repaired = invalid.replace("owner: null", "owner: Codex")
+    write_item(item_path, repaired, ready_body())
+    repair_commands: list[str] = []
+
+    repair_commands.append("render")
+    assert run("render", tmp_path) == 0
+    repair_commands.append("check")
+    assert run("check", tmp_path) == 0
+    assert writes == [item_path]
+    assert repair_commands == ["render", "check"]
+    assert "| [SL-001]" in (project / "backlog.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_validate_items_reports_missing_blocker_details(tmp_path: Path) -> None:
