@@ -112,6 +112,27 @@ uv run ruff check .    # Lint
 - Python 3.12+ / 依存: openpyxl, oletools, pydantic, pyyaml, typer
 - テスト用の Excel はコミットせず、openpyxl でテスト内生成しています
 
+## 配布とリポジトリ衛生
+
+SheetLens は個人利用専用です。再配布や第三者への利用許諾を付与していないため、PyPI へ
+公開・アップロードしないでください。
+
+実業務の Excel（`.xls` / `.xlsx` / `.xlsm` / `.xlsb` / `.xltx` / `.xltm`）や、そこから生成した
+`*.sheetlens/` はリポジトリへ持ち込まないでください。`.gitignore` は誤登録を減らす補助であり、
+機密情報を安全にする仕組みではありません。テスト用に追跡している `tests/fixtures/xlsm/` の
+固定・静的解析済み fixture だけが例外です。
+
+配布境界を確認するには、リポジトリルートで次を実行します。
+
+```bash
+uv build --sdist --wheel
+uv run python scripts/wheel_smoke.py
+```
+
+sdist は README、`pyproject.toml`、`src/`、生成 `PKG-INFO` と、Hatchling が VCS 除外ファイルとして
+強制同梱する root `.gitignore` だけを含みます。docs、tests、業務データ、開発用設定は配布成果物へ
+含めません。
+
 ## ステータス
 
 v1（初期実装）。既知の制限:

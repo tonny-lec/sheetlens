@@ -37,5 +37,6 @@ jobs:
           uv run --frozen ruff check .
           uv run --frozen mypy src
           uv run --frozen pytest --cov=src/sheetlens --cov-report=term-missing --cov-fail-under=90
-          uv build --wheel
+          python -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
+          uv build --sdist --wheel
           uv run --frozen python scripts/wheel_smoke.py

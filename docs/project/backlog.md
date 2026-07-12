@@ -26,4 +26,4 @@
 | [SL-013](items/SL-013-atomic-extract-cli-errors.md) | P2 | done | M3 | アトミック再抽出と CLI エラー統一 | — | — |
 | [SL-016](items/SL-016-golden-ci-quality.md) | P2 | done | M4 | golden test と CI 品質ゲート | — | — |
 | [SL-019](items/SL-019-process-project-backlog.md) | P2 | done | M4 | backlog 課題の自動直列処理 | — | — |
-| [SL-017](items/SL-017-package-repository-hygiene.md) | P3 | ready | M4 | パッケージとリポジトリの衛生管理 | — | — |
+| [SL-017](items/SL-017-package-repository-hygiene.md) | P3 | done | M4 | パッケージとリポジトリの衛生管理 | — | — |
