@@ -10,6 +10,12 @@ description: Use when one SheetLens project issue has satisfied its acceptance c
 Finish exactly one active SheetLens issue without requiring a separate commit or merge request.
 Stop rather than guessing whenever scope, history, or integration safety is ambiguous.
 
+`done` is authoritative only after this workflow has committed the issue, fast-forwarded it into
+local `main`, rerun the required verification on `main`, and confirmed a clean worktree with no
+active issue. The `done` value recorded in the task-branch commit is provisional until those steps
+complete. Only the parent/root finish workflow may make that transition; implementation work must
+not independently mark an issue `done`.
+
 ## User Overrides
 
 Do not commit or merge when the user requests verification only, no commit, no merge, or
@@ -26,8 +32,12 @@ read-only review. Never push unless the user explicitly requests it.
    untracked files. Stop if any change is unrelated to the issue or ownership is uncertain.
 5. Run all required verification commands from the repository `AGENTS.md`. Fix failures and
    rerun; never suppress failures to reach commit.
-6. Change the issue to `status: done`, set `owner: null`, render the backlog, and rerun the
-   project-state check. Include those files in the issue scope.
+6. As the provisional task-branch payload, change the issue to `status: done`, set `owner: null`,
+   render the backlog, and rerun the project-state check. Include those files in the issue scope.
+   Do not declare completion at this point. If this workflow is interrupted before the commit,
+   update the uncommitted item back to `in_progress` with `owner: Codex`, or use `blocked` with
+   `owner: null`, the required blocker fields, and the resume condition; render/check before
+   stopping. Never independently leave `done` on `main`.
 7. Establish a task branch:
    - On `main` with the task changes present, create `feat/SL-NNN-<short-slug>` before staging.
    - On detached HEAD, create that branch.
@@ -39,8 +49,13 @@ read-only review. Never push unless the user explicitly requests it.
 10. Switch to `main` and run `git merge --ff-only <task-branch>`. Stop if `main` moved,
     fast-forward is impossible, or a conflict/rebase would be required.
 11. On `main`, rerun all required verification commands and confirm `git status --short` is
-    empty. Do not trust only the task-branch results.
-12. Delete the merged local branch with `git branch -d`. Do not delete a branch with `-D`.
+    empty. Do not trust only the task-branch results. If post-merge verification fails, do not
+    reset or rewrite history: keep the merged commit, set the issue back to `in_progress` or
+    `blocked` (`owner: Codex` for `in_progress`, `owner: null` for `blocked`), record the failure
+    and resume condition, render/check, and make a state-only recovery commit on `main`.
+12. Delete the merged local branch with `git branch -d`. Do not delete a branch with `-D`. If only
+    branch deletion fails after main integration, verification, clean state, and no active issue
+    have succeeded, preserve `done` and report the remaining cleanup condition.
 
 ## Stop Conditions
 
@@ -48,6 +63,7 @@ read-only review. Never push unless the user explicitly requests it.
 - Unrelated or unexplained worktree changes.
 - A failed verification command.
 - A non-fast-forward merge, concurrent `main` movement, conflict, or required history rewrite.
+- An unfinished task branch or provisional `done` state that cannot be safely resumed.
 - Missing approval for a required Git metadata write.
 - Any remote operation not explicitly authorized by the user.
 

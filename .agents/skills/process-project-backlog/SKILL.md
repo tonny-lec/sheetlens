@@ -13,6 +13,10 @@ condition occurs.
 
 1. Run `uv run python scripts/check_project_state.py check`. Stop on nonzero exit.
 2. Inspect `git status --short --branch` and the current branch.
+   Also inspect unmerged task branches with `git branch --no-merged main 'feat/SL-*'`.
+   If exactly one branch maps unambiguously to an unfinished issue, resume that branch and its
+   finish workflow; do not invoke selection or start another issue. If multiple or ambiguous
+   task branches exist, stop and report the branches and the evidence needed to resume.
 3. Invoke `$select-next-project-issue` and use only its validated result.
    Keep every project-management state update in the root agent; never delegate it.
    - Treat `着手可能な課題なし` as successful completion.
@@ -37,6 +41,7 @@ condition occurs.
    - `git status --short` is empty;
    - `uv run python scripts/check_project_state.py check` exits zero;
    - no issue is `in_progress`.
+   - no unmerged `feat/SL-*` task branch remains.
 9. Repeat from step 1 unless the requested issue limit has been reached.
 
 ## Post-completion handoff
@@ -68,6 +73,7 @@ Stop immediately without selecting another issue when any of these occurs:
 - failed required verification;
 - conflict, non-fast-forward integration, concurrent `main` movement, or incomplete finish;
 - post-finish branch, worktree, project-state, or active-issue checks fail.
+- a provisional `done` task branch remains and cannot be resumed safely before selection.
 
 Return the completed issue IDs, the current blocker or normal stop reason, and the exact condition
 for resuming. Never push, force, rebase, reset, or resolve ambiguous conflicts automatically.

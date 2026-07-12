@@ -40,9 +40,20 @@ done -> ready
 - `proposed`: 根本原因、変更範囲、受け入れ条件のいずれかが未確定
 - `ready`: 根拠、受け入れ条件、対象外、touches が明確で依存課題が完了
 - `in_progress`: owner が割り当てられて作業中
-- `blocked`: 理由、解除条件、次に確認することを記録して待機中
-- `done`: 受け入れ条件と検証をすべて満たした
+- `blocked`: owner を解放し、理由、解除条件、次に確認することを記録して待機中
+- `done`: finish workflow の task branch に記録された provisional 完了、または local `main` で
+  commit・fast-forward 統合・統合後検証・clean worktree・active issue なしまで確認された authoritative 完了
 - `cancelled`: 中止理由を記録して終了
+
+`done` の authoritative な遷移を行えるのは、受け入れ条件を確認した親ワーカーが
+`finish-project-issue` の手順を最後まで実行した場合だけです。task branch の commit に含まれる
+`done` は provisional であり、`main` へ統合されるまで次の課題を選ぶ根拠にしません。commit 前の
+中断・検証失敗・permission 不足では `in_progress` と `owner: Codex` を維持し、継続不能なら
+`blocked` に owner を `null` として理由、解除条件、次に確認することを記録します。
+
+統合後検証が失敗した場合は、reset・rebase・force を行わず、`main` 上で `in_progress` または
+`blocked` へ戻す state-only recovery commit を作成します。branch の削除だけが失敗した場合は、
+main の完了状態を取り消さず、残存 branch と後処理条件を報告します。
 
 ## 並行作業
 

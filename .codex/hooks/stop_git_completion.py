@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Block implementation-complete claims until local Git integration is complete."""
+"""Block completion claims until the authoritative local Git state is complete.
+
+The hook can verify the observable main/clean/project-state/active-issue boundary; it
+cannot prove that the finish skill itself was followed or that tests were run.
+"""
 
 from __future__ import annotations
 
@@ -43,13 +47,18 @@ def completion_problems(cwd: Path, runner: CommandRunner = run_command) -> list[
     if code != 0:
         problems.append(f"現在のbranchを確認できません: {error.strip()}")
     elif branch.strip() != "main":
-        problems.append(f"現在のbranchがmainではありません: {branch.strip() or 'detached HEAD'}")
+        problems.append(
+            "現在のbranchがmainではありません（task branchのdoneは未統合の候補状態です）: "
+            f"{branch.strip() or 'detached HEAD'}"
+        )
+        return problems
 
     code, status, error = runner(("git", "status", "--porcelain"), root)
     if code != 0:
         problems.append(f"作業ツリーを確認できません: {error.strip()}")
     elif status.strip():
         problems.append("作業ツリーに未コミット変更があります")
+        return problems
 
     project_check = (
         sys.executable,
