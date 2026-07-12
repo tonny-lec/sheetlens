@@ -21,18 +21,19 @@ owner: null
 
 ## 背景と根本原因
 
-意味層の正が Markdown にしかなく、注釈テキスト中の改行や見出しが文書構造として解釈される。
+意味層の正が Markdown にしかなく、注釈だけでなく Excel 由来のセル値、シート名、ファイル名、質問文、VBA・ボタン名などの外部由来文字列も、出力位置によっては Markdown の文書構造として解釈される。
 
 ## 根拠
 
-`src/sheetlens/renderers/markdown.py:15-35` と `src/sheetlens/renderers/markdown.py:94-96` は注釈を無加工で挿入し、無害化はグリッドセル `src/sheetlens/renderers/markdown.py:39-40` に限られる。
+`src/sheetlens/renderers/markdown.py:39-51` はグリッドセルの改行と pipe だけを処理し、`:184-214`、`:331-343` は注釈・質問・対象名を文脈別に無害化せず挿入する。`raw.json` 以外の AI 向け出力に、外部入力が Markdown の見出し、blockquote、code fence、リンク、HTML として解釈される経路が残っている。
 
 ## 受け入れ条件
 
 - [ ] 構造要素 ID と provenance を含む compiled 意味層 JSON を生成する。
 - [ ] Markdown は compiled データから生成し、見出し、blockquote、code fence を注釈から生成させない。
-- [ ] role、note、value に改行、`##`、`> ❓`、backtick、pipe を含むテストを追加する。
-- [ ] Markdown parser 上の正規見出し集合が注釈内容で変化しない。
+- [ ] role、note、value、cell value、sheet name、file name、question text、VBA・button name に改行、`##`、`> ❓`、backtick、pipe、link、HTML を含むテストを追加する。
+- [ ] Markdown の出力位置ごとに literal text と構文を分離し、外部入力によって見出し、blockquote、code fence、link、HTML の構造が変化しない。
+- [ ] Markdown parser 上の正規見出し集合と構文要素集合が外部入力で変化しない。
 
 ## 対象外
 

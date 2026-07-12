@@ -12,7 +12,9 @@
 | [SL-006](items/SL-006-conditional-format-ir.md) | P1 | done | M2 | 条件付き書式 IR の完全化 | — | — |
 | [SL-007](items/SL-007-cell-display-semantics.md) | P1 | done | M2 | セルの型、表示形式、表示意味の保持 | — | — |
 | [SL-008](items/SL-008-artifact-presence.md) | P1 | done | M2 | グラフ、図形、ピボット等の存在記録 | — | — |
+| [SL-025](items/SL-025-validation-rule-ir-fidelity.md) | P1 | proposed | M2 | 入力規則 IR の意味情報完全化 | SL-005 | — |
 | [SL-011](items/SL-011-input-formula-regions.md) | P1 | done | M3 | 手入力列と数式列を分離した質問生成 | — | — |
+| [SL-028](items/SL-028-sheet-local-defined-name-dependencies.md) | P1 | proposed | M3 | シートローカル定義名の依存解析 | SL-012 | — |
 | [SL-014](items/SL-014-real-xlsm-windows.md) | P1 | done | M4 | 実 xlsm の Windows E2E 検証 | — | — |
 | [SL-015](items/SL-015-reproducible-evaluation.md) | P1 | proposed | M4 | 再現可能な A/B 評価基盤 | SL-001, SL-003 | — |
 | [SL-018](items/SL-018-autonomous-git-completion.md) | P1 | done | M4 | Codexによる課題完了時の自動Git統合 | — | — |
@@ -20,10 +22,13 @@
 | [SL-021](items/SL-021-sequential-state-updates.md) | P1 | done | M4 | 管理状態更新の直列化 | — | — |
 | [SL-022](items/SL-022-owner-lifecycle.md) | P1 | done | M4 | owner と status のライフサイクル再設計 | — | — |
 | [SL-023](items/SL-023-stop-hook-responsibility.md) | P1 | ready | M4 | Stop hook の責務境界と最小完了ゲート | SL-020, SL-021, SL-022 | — |
+| [SL-024](items/SL-024-ci-quality-gate-regression.md) | P1 | proposed | M4 | CI 品質ゲート回帰の修復 | SL-016 | — |
 | [SL-009](items/SL-009-structural-range.md) | P2 | done | M2 | structural range と非表示範囲の修正 | — | — |
 | [SL-010](items/SL-010-vml-buttons.md) | P2 | done | M2 | VML ボタン抽出の XML 解析化 | — | — |
+| [SL-027](items/SL-027-workbook-resource-cleanup.md) | P2 | proposed | M2 | Workbook 読込リソースの確実な解放 | — | — |
 | [SL-012](items/SL-012-formula-dependency-parser.md) | P2 | done | M3 | 数式正規化と依存グラフの token 解析化 | — | — |
 | [SL-013](items/SL-013-atomic-extract-cli-errors.md) | P2 | done | M3 | アトミック再抽出と CLI エラー統一 | — | — |
+| [SL-026](items/SL-026-compile-atomic-update.md) | P2 | proposed | M3 | compile のアトミック更新と排他制御 | SL-013 | — |
 | [SL-016](items/SL-016-golden-ci-quality.md) | P2 | done | M4 | golden test と CI 品質ゲート | — | — |
 | [SL-019](items/SL-019-process-project-backlog.md) | P2 | done | M4 | backlog 課題の自動直列処理 | — | — |
 | [SL-017](items/SL-017-package-repository-hygiene.md) | P3 | done | M4 | パッケージとリポジトリの衛生管理 | — | — |
