@@ -16,6 +16,10 @@
 | [SL-014](items/SL-014-real-xlsm-windows.md) | P1 | done | M4 | 実 xlsm の Windows E2E 検証 | — | — |
 | [SL-015](items/SL-015-reproducible-evaluation.md) | P1 | proposed | M4 | 再現可能な A/B 評価基盤 | SL-001, SL-003 | — |
 | [SL-018](items/SL-018-autonomous-git-completion.md) | P1 | done | M4 | Codexによる課題完了時の自動Git統合 | — | — |
+| [SL-020](items/SL-020-completion-state-authority.md) | P1 | proposed | M4 | 課題完了状態の権限と中断復旧 | — | — |
+| [SL-021](items/SL-021-sequential-state-updates.md) | P1 | proposed | M4 | 管理状態更新の直列化 | — | — |
+| [SL-022](items/SL-022-owner-lifecycle.md) | P1 | proposed | M4 | owner と status のライフサイクル再設計 | — | — |
+| [SL-023](items/SL-023-stop-hook-responsibility.md) | P1 | proposed | M4 | Stop hook の責務境界と最小完了ゲート | SL-020, SL-021, SL-022 | — |
 | [SL-009](items/SL-009-structural-range.md) | P2 | done | M2 | structural range と非表示範囲の修正 | — | — |
 | [SL-010](items/SL-010-vml-buttons.md) | P2 | done | M2 | VML ボタン抽出の XML 解析化 | — | — |
 | [SL-012](items/SL-012-formula-dependency-parser.md) | P2 | done | M3 | 数式正規化と依存グラフの token 解析化 | — | — |
