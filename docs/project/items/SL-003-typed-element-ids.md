@@ -1,7 +1,7 @@
 ---
 id: SL-003
 title: 構造要素への型付き安定 ID 導入
-status: proposed
+status: ready
 priority: P1
 type: refactor
 milestone: M1

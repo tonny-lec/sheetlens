@@ -1,7 +1,7 @@
 ---
 id: SL-023
 title: Stop hook の責務境界と最小完了ゲート
-status: proposed
+status: ready
 priority: P1
 type: quality
 milestone: M4

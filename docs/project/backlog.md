@@ -6,7 +6,7 @@
 |---|---|---|---|---|---|---|
 | [SL-001](items/SL-001-stable-question-ids.md) | P1 | done | M1 | 質問 ID の安定化と旧 ID 移行 | — | — |
 | [SL-002](items/SL-002-annotation-schema.md) | P1 | done | M1 | kind 別注釈スキーマと重複シート処理 | SL-001 | — |
-| [SL-003](items/SL-003-typed-element-ids.md) | P1 | proposed | M1 | 構造要素への型付き安定 ID 導入 | SL-001, SL-002 | — |
+| [SL-003](items/SL-003-typed-element-ids.md) | P1 | ready | M1 | 構造要素への型付き安定 ID 導入 | SL-001, SL-002 | — |
 | [SL-004](items/SL-004-compiled-semantics.md) | P1 | proposed | M1 | compiled 意味層 JSON と Markdown 無害化 | SL-002, SL-003 | — |
 | [SL-005](items/SL-005-defined-name-validations.md) | P1 | done | M2 | 名前定義プルダウンの解決 | — | — |
 | [SL-006](items/SL-006-conditional-format-ir.md) | P1 | done | M2 | 条件付き書式 IR の完全化 | — | — |
@@ -19,7 +19,7 @@
 | [SL-020](items/SL-020-completion-state-authority.md) | P1 | done | M4 | 課題完了状態の権限と中断復旧 | — | — |
 | [SL-021](items/SL-021-sequential-state-updates.md) | P1 | done | M4 | 管理状態更新の直列化 | — | — |
 | [SL-022](items/SL-022-owner-lifecycle.md) | P1 | done | M4 | owner と status のライフサイクル再設計 | — | — |
-| [SL-023](items/SL-023-stop-hook-responsibility.md) | P1 | proposed | M4 | Stop hook の責務境界と最小完了ゲート | SL-020, SL-021, SL-022 | — |
+| [SL-023](items/SL-023-stop-hook-responsibility.md) | P1 | ready | M4 | Stop hook の責務境界と最小完了ゲート | SL-020, SL-021, SL-022 | — |
 | [SL-009](items/SL-009-structural-range.md) | P2 | done | M2 | structural range と非表示範囲の修正 | — | — |
 | [SL-010](items/SL-010-vml-buttons.md) | P2 | done | M2 | VML ボタン抽出の XML 解析化 | — | — |
 | [SL-012](items/SL-012-formula-dependency-parser.md) | P2 | done | M3 | 数式正規化と依存グラフの token 解析化 | — | — |
